@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-gray-50 text-gray-900 transition-colors duration-200;
+}
+
+.dark body {
+  @apply bg-slate-950 text-slate-100;
+}
+
+.dark .bg-white {
+  @apply bg-slate-900 !important;
+}
+
+.dark .bg-gray-50, .dark .hover\:bg-gray-50:hover, .dark .hover\:bg-gray-100:hover {
+  @apply bg-slate-800 !important;
+}
+
+.dark .border-gray-100, .dark .border-gray-200, .dark .border-gray-300, .dark .border-gray-50 {
+  @apply border-slate-700 !important;
+}
+
+.dark .text-gray-900, .dark .text-gray-700, .dark .text-gray-600 {
+  @apply text-slate-100 !important;
+}
+
+.dark .text-gray-500, .dark .text-gray-400 {
+  @apply text-slate-300 !important;
+}
+
+.dark input, .dark select, .dark textarea {
+  @apply bg-slate-800 text-slate-100 border-slate-600;
+}
