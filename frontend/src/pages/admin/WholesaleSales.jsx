@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { productApi, showroomApi, wholesaleInvoiceApi, wholesalePartyApi, wholesalePaymentApi } from "../../api/endpoints";
+import PartyCombobox from "../../components/PartyCombobox.jsx";
 
 const listOf = (response) => response.data.results || response.data;
 const today = new Date().toISOString().slice(0, 10);
@@ -11,9 +12,11 @@ export default function WholesaleSales() {
   const [products, setProducts] = useState([]);
   const [showrooms, setShowrooms] = useState([]);
   const [invoices, setInvoices] = useState([]);
-  const [form, setForm] = useState({ party: "", invoice_number: "", sale_date: today, stock_location: "factory", showroom: "", notes: "", items: [line()], initial_bank_payment: "0", initial_bkash_payment: "0", initial_cash_payment: "0" });
-  const [payment, setPayment] = useState({ invoice: "", payment_date: today, bank_amount: "0", bkash_amount: "0", cash_amount: "0", notes: "" });
+  const [form, setForm] = useState({ party: "", invoice_number: "", sale_date: today, stock_location: "factory", showroom: "", notes: "", items: [line()] });
+  const [payment, setPayment] = useState({ invoice: "", payment_date: today, bank_amount: "0", bkash_amount: "0", cash_amount: "0", reference: "", notes: "" });
   const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const paymentKeyRef = useRef({ payload: "", key: "" });
 
   async function load() {
     const [partyRes, productRes, showroomRes, invoiceRes] = await Promise.all([
@@ -42,23 +45,37 @@ export default function WholesaleSales() {
 
   async function createInvoice(event) {
     event.preventDefault();
+    if (saving) return;
+    if (!form.party) {
+      setMessage("Select a saved party before saving the cash memo.");
+      return;
+    }
     setMessage("");
+    setSaving(true);
     try {
+      if (!window.confirm(`Save cash memo ${form.invoice_number} for ${form.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)} pieces, total ৳ ${total.toLocaleString()}?`)) return;
       await wholesaleInvoiceApi.create({ ...form, party: Number(form.party), showroom: form.stock_location === "showroom" ? Number(form.showroom) : null, items: form.items.map((item) => ({ ...item, product: Number(item.product), quantity: Number(item.quantity), unit_price: Number(item.unit_price) })) });
-      setMessage("Invoice saved. Inventory and payment history updated.");
-      setForm((current) => ({ ...current, invoice_number: "", notes: "", items: [line()], initial_bank_payment: "0", initial_bkash_payment: "0", initial_cash_payment: "0" }));
+      setMessage("Cash memo saved and inventory updated.");
+      setForm((current) => ({ ...current, invoice_number: "", notes: "", items: [line()] }));
       await load();
     } catch (error) {
       setMessage(error.response?.data?.detail || JSON.stringify(error.response?.data || "Could not save invoice."));
+    } finally {
+      setSaving(false);
     }
   }
+          <label className="block text-xs text-gray-500">Payment reference / transaction ID<input value={payment.reference} onChange={(event) => setPayment({ ...payment, reference: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>
 
   async function recordPayment(event) {
     event.preventDefault();
     setMessage("");
     try {
-      await wholesalePaymentApi.create({ ...payment, invoice: Number(payment.invoice), bank_amount: Number(payment.bank_amount), bkash_amount: Number(payment.bkash_amount), cash_amount: Number(payment.cash_amount) });
-      setPayment((current) => ({ ...current, bank_amount: "0", bkash_amount: "0", cash_amount: "0", notes: "" }));
+      const payload = { ...payment, invoice: Number(payment.invoice), bank_amount: Number(payment.bank_amount), bkash_amount: Number(payment.bkash_amount), cash_amount: Number(payment.cash_amount) };
+      const fingerprint = JSON.stringify(payload);
+      if (paymentKeyRef.current.payload !== fingerprint) paymentKeyRef.current = { payload: fingerprint, key: window.crypto.randomUUID() };
+      await wholesalePaymentApi.create(payload, paymentKeyRef.current.key);
+      paymentKeyRef.current = { payload: "", key: "" };
+      setPayment((current) => ({ ...current, bank_amount: "0", bkash_amount: "0", cash_amount: "0", reference: "", notes: "" }));
       setMessage("Payment recorded against the selected invoice.");
       await load();
     } catch (error) {
@@ -73,7 +90,7 @@ export default function WholesaleSales() {
       <div className="grid gap-6 xl:grid-cols-[1.5fr_0.8fr]">
         <form onSubmit={createInvoice} className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="text-xs text-gray-500 sm:col-span-2">Party<select required value={form.party} onChange={(event) => setForm({ ...form, party: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"><option value="">Select party</option>{parties.map((party) => <option key={party.id} value={party.id}>{party.name}</option>)}</select></label>
+            <div className="sm:col-span-2"><PartyCombobox value={form.party} onChange={(party) => setForm((current) => ({ ...current, party }))} label="Party" /></div>
             <label className="text-xs text-gray-500">Invoice number<input required value={form.invoice_number} onChange={(event) => setForm({ ...form, invoice_number: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>
             <label className="text-xs text-gray-500">Sale date<input required type="date" value={form.sale_date} onChange={(event) => setForm({ ...form, sale_date: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>
             <label className="text-xs text-gray-500">Stock location<select value={form.stock_location} onChange={(event) => setForm({ ...form, stock_location: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"><option value="factory">Factory stock</option><option value="showroom">Showroom stock</option></select></label>
@@ -83,15 +100,14 @@ export default function WholesaleSales() {
             <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Products</h2><button type="button" onClick={() => setForm({ ...form, items: [...form.items, line()] })} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Add product</button></div>
             {form.items.map((item, index) => <div key={index} className="grid gap-2 rounded-lg bg-gray-50 p-3 sm:grid-cols-[2fr_0.6fr_0.8fr_auto] sm:items-end">
               <label className="text-xs text-gray-500">Product<select required value={item.product} onChange={(event) => updateItem(index, "product", event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"><option value="">Select product</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}{product.code ? ` · ${product.code}` : ""}{product.size ? ` · ${product.size}` : ""}</option>)}</select></label>
-              <label className="text-xs text-gray-500">Quantity<input required type="number" min="1" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>
+              <label className="text-xs text-gray-500">Quantity<input required type="number" min="1" value={item.quantity} onChange={(event) => updateItem(index, "quantity", event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /><span className="mt-1 block text-gray-700">Line {money(Number(item.quantity || 0) * Number(item.unit_price || 0))}</span></label>
               <label className="text-xs text-gray-500">Unit price<input required type="number" min="0" step="0.01" value={item.unit_price} onChange={(event) => updateItem(index, "unit_price", event.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>
               <button type="button" disabled={form.items.length === 1} onClick={() => setForm({ ...form, items: form.items.filter((_, rowIndex) => rowIndex !== index) })} aria-label="Remove product" className="rounded-lg px-3 py-2 text-sm text-red-600 disabled:opacity-30">Remove</button>
             </div>)}
-            <div className="text-right text-sm">Invoice total <strong className="ml-2 text-base">{money(total)}</strong></div>
+            <div className="text-right text-sm">Total quantity <strong className="ml-1">{form.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)} pcs</strong><span className="mx-2 text-gray-300">|</span>Gross sale <strong className="ml-1 text-base">{money(total)}</strong></div>
           </section>
-          <section><h2 className="mb-2 text-sm font-semibold">Payment received now</h2><div className="grid gap-3 sm:grid-cols-3">{[["initial_bank_payment", "Bank"], ["initial_bkash_payment", "bKash"], ["initial_cash_payment", "Cash"]].map(([key, label]) => <label key={key} className="text-xs text-gray-500">{label}<input type="number" min="0" step="0.01" value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>)}</div></section>
           <textarea placeholder="Invoice notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows="2" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-          <button className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white">Save invoice</button>
+          <button disabled={saving} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{saving ? "Saving..." : "Save invoice"}</button>
         </form>
         <form onSubmit={recordPayment} className="h-fit space-y-3 rounded-xl border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold">Record invoice payment</h2>

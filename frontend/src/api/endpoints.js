@@ -50,9 +50,11 @@ export const stockAdjustmentApi = {
 
 export const wholesalePartyApi = {
   list: (params) => api.get("/wholesale/parties/", { params }),
+  get: (id) => api.get(`/wholesale/parties/${id}/`),
   create: (data) => api.post("/wholesale/parties/", data),
   update: (id, data) => api.patch(`/wholesale/parties/${id}/`, data),
-  history: (id) => api.get(`/wholesale/parties/${id}/history/`),
+  history: (id, params) => api.get(`/wholesale/parties/${id}/history/`, { params }),
+  exportStatement: (id, params) => downloadFile(`/wholesale/parties/${id}/statement/export/`, params, `party-${id}-account-statement.xlsx`),
 };
 
 export const wholesaleInvoiceApi = {
@@ -62,16 +64,17 @@ export const wholesaleInvoiceApi = {
 
 export const wholesalePaymentApi = {
   list: (params) => api.get("/wholesale/payments/", { params }),
-  create: (data) => api.post("/wholesale/payments/", data),
+  create: (data, idempotencyKey) => api.post("/wholesale/payments/", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {} }),
 };
 
 export const wholesaleReturnApi = {
   list: (params) => api.get("/wholesale/returns/", { params }),
-  create: (data) => api.post("/wholesale/returns/", data),
+  create: (data, idempotencyKey) => api.post("/wholesale/returns/", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {} }),
 };
 
 export const wholesaleReportApi = {
   summary: (params) => api.get("/wholesale/summary/", { params }),
+  exportSummary: (params) => downloadFile("/wholesale/summary/export/", params, "wholesale-all-parties-summary.xlsx"),
   reports: (params) => api.get("/wholesale/reports/", { params }),
   export: (params) => downloadFile("/wholesale/reports/export/", params, "wholesale-report.xlsx"),
 };

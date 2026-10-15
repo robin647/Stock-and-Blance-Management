@@ -8,6 +8,7 @@ from apps.showrooms.models import Showroom
 
 class WholesaleParty(models.Model):
     name = models.CharField(max_length=180)
+    contact_person = models.CharField(max_length=120, blank=True)
     phone = models.CharField(max_length=30, blank=True)
     address = models.TextField(blank=True)
     business_name = models.CharField(max_length=180, blank=True)
@@ -17,6 +18,7 @@ class WholesaleParty(models.Model):
 
     class Meta:
         ordering = ["name", "id"]
+        indexes = [models.Index(fields=["name"]), models.Index(fields=["phone"])]
 
     def __str__(self):
         return self.name
@@ -89,9 +91,14 @@ class WholesalePayment(models.Model):
     bank_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     bkash_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     cash_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    reference = models.CharField(max_length=120, blank=True)
+    idempotency_key = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["payment_date", "invoice"])]
 
     @property
     def total_amount(self):
@@ -104,5 +111,9 @@ class WholesaleReturn(models.Model):
     amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
     return_date = models.DateField()
     notes = models.TextField(blank=True)
+    idempotency_key = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["return_date", "invoice_item"])]

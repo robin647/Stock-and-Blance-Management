@@ -20,7 +20,7 @@ export default function AllPartiesSummary() {
 
   return (
     <div className="space-y-6">
-      <header><h1 className="text-lg font-semibold">All Parties Summary</h1><p className="mt-1 text-sm text-gray-500">Combined wholesale account position for the selected filters</p></header>
+      <header className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-lg font-semibold">All Parties Summary</h1><p className="mt-1 text-sm text-gray-500">Combined wholesale account position for the selected filters</p></div><button onClick={() => { const params = Object.fromEntries(Object.entries(filters).filter(([key, value]) => value !== "" && key !== "page")); wholesaleReportApi.exportSummary(params).catch(() => setError("Could not export all-parties summary.")); }} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm">Export Excel</button></header>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">{[["Total sales", totals.total_sales], ["Payments", totals.total_payments], ["Returns", totals.total_returns], ["Outstanding due", totals.total_due], ["Party credit", totals.total_credit], ["Products purchased", totals.total_products]].map(([label, value]) => <div key={label} className="border-l-2 border-brand-500 bg-white px-4 py-3"><div className="text-xs text-gray-500">{label}</div><div className="mt-1 text-lg font-semibold">{label === "Products purchased" ? Number(value || 0).toLocaleString() : money(value)}</div></div>)}</div>
       <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

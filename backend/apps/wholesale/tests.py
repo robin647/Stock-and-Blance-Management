@@ -1,6 +1,8 @@
 from decimal import Decimal
+from io import BytesIO
 
 from django.test import TestCase
+from openpyxl import load_workbook
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
@@ -155,3 +157,98 @@ class WholesaleApiTests(TestCase):
         self.assertEqual(party.status_code, 403)
         self.assertEqual(adjustment.status_code, 403)
         self.assertEqual(summary.status_code, 403)
+
+    def test_party_partial_search_edit_and_deactivation(self):
+        search = self.client.get("/api/wholesale/parties/", {"search": "test buy"})
+        self.assertEqual(search.status_code, 200)
+        self.assertEqual(search.data["count"], 1)
+        response = self.client.patch(f"/api/wholesale/parties/{self.party_id}/", {
+            "contact_person": "A. Buyer", "is_active": False,
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["contact_person"], "A. Buyer")
+        self.assertFalse(response.data["is_active"])
+
+    def test_statement_uses_actual_payment_date_and_prior_opening_balance(self):
+        invoice = self.client.post("/api/wholesale/invoices/", {
+            "party": self.party_id, "invoice_number": "WS-DATE-01", "sale_date": "2026-10-01",
+            "items": [{"product": self.product.id, "quantity": 2, "unit_price": "100.00"}],
+        }, format="json")
+        self.assertEqual(invoice.status_code, 201, invoice.data)
+        payment = self.client.post("/api/wholesale/payments/", {
+            "invoice": invoice.data["id"], "payment_date": "2026-10-12", "bank_amount": "50.00",
+            "bkash_amount": "25.00", "cash_amount": "25.00", "reference": "BANK-REF-7",
+        }, format="json")
+        self.assertEqual(payment.status_code, 201, payment.data)
+
+        statement = self.client.get(f"/api/wholesale/parties/{self.party_id}/history/", {
+            "start_date": "2026-10-10", "end_date": "2026-10-15",
+        })
+        self.assertEqual(statement.status_code, 200, statement.data)
+        self.assertEqual(statement.data["opening_balance"], "200.00")
+        self.assertEqual(statement.data["summary"]["gross_sales"], "0.00")
+        self.assertEqual(statement.data["summary"]["total_payments"], "100.00")
+        self.assertEqual(statement.data["summary"]["bank_payments"], "50.00")
+        self.assertEqual(statement.data["closing_balance"], "100.00")
+        row = statement.data["results"][0]
+        self.assertEqual(row["type"], "payment")
+        self.assertEqual(row["date"], "2026-10-12")
+        self.assertEqual(row["reference"], "BANK-REF-7")
+        self.assertEqual(row["running_balance"], "100.00")
+
+        statement_export = self.client.get(
+            f"/api/wholesale/parties/{self.party_id}/statement/export/",
+            {"start_date": "2026-10-10", "end_date": "2026-10-15"},
+        )
+        self.assertEqual(statement_export.status_code, 200)
+        statement_sheet = load_workbook(BytesIO(statement_export.content), read_only=True)["Account Statement"]
+        self.assertIn("BANK-REF-7", [cell for row in statement_sheet.iter_rows(values_only=True) for cell in row])
+
+    def test_all_parties_export_uses_net_sales_and_preserves_summary(self):
+        invoice = self.client.post("/api/wholesale/invoices/", {
+            "party": self.party_id, "invoice_number": "WS-EXPORT", "sale_date": "2026-10-15",
+            "items": [{"product": self.product.id, "quantity": 2, "unit_price": "100.00"}],
+        }, format="json")
+        self.assertEqual(invoice.status_code, 201, invoice.data)
+        self.client.post("/api/wholesale/returns/", {
+            "invoice_item": invoice.data["items"][0]["id"], "quantity": 1,
+            "amount": "100.00", "return_date": "2026-10-15",
+        }, format="json")
+        summary_export = self.client.get("/api/wholesale/summary/export/", {"search": "Test Buyer"})
+        self.assertEqual(summary_export.status_code, 200)
+        summary_sheet = load_workbook(BytesIO(summary_export.content), read_only=True)["All Parties Summary"]
+        self.assertEqual(list(summary_sheet.iter_rows(values_only=True))[1][1], Decimal("100.00"))
+
+    def test_failed_sale_rolls_back_invoice_and_stock(self):
+        response = self.client.post("/api/wholesale/invoices/", {
+            "party": self.party_id, "invoice_number": "WS-ROLLBACK", "sale_date": "2026-10-15",
+            "items": [{"product": self.product.id, "quantity": 21, "unit_price": "100.00"}],
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(self.product.wholesale_sale_items.filter(invoice__invoice_number="WS-ROLLBACK").exists())
+        self.factory_stock.refresh_from_db()
+        self.assertEqual(self.factory_stock.quantity, 20)
+
+    def test_payment_and_return_retries_are_idempotent(self):
+        invoice = self.client.post("/api/wholesale/invoices/", {
+            "party": self.party_id, "invoice_number": "WS-IDEMPOTENT", "sale_date": "2026-10-15",
+            "items": [{"product": self.product.id, "quantity": 2, "unit_price": "100.00"}],
+        }, format="json")
+        payment_payload = {
+            "invoice": invoice.data["id"], "payment_date": "2026-10-15", "bank_amount": "25.00",
+            "bkash_amount": "0.00", "cash_amount": "0.00",
+        }
+        first_payment = self.client.post("/api/wholesale/payments/", payment_payload, format="json", HTTP_IDEMPOTENCY_KEY="pay-retry-1")
+        retry_payment = self.client.post("/api/wholesale/payments/", payment_payload, format="json", HTTP_IDEMPOTENCY_KEY="pay-retry-1")
+        self.assertEqual(first_payment.data["id"], retry_payment.data["id"])
+
+        item_id = invoice.data["items"][0]["id"]
+        return_payload = {"invoice_item": item_id, "quantity": 1, "amount": "100.00", "return_date": "2026-10-15"}
+        first_return = self.client.post("/api/wholesale/returns/", return_payload, format="json", HTTP_IDEMPOTENCY_KEY="return-retry-1")
+        retry_return = self.client.post("/api/wholesale/returns/", return_payload, format="json", HTTP_IDEMPOTENCY_KEY="return-retry-1")
+        self.assertEqual(first_return.data["id"], retry_return.data["id"])
+        self.factory_stock.refresh_from_db()
+        self.assertEqual(self.factory_stock.quantity, 19)
+        detail = self.client.get(f"/api/wholesale/invoices/{invoice.data['id']}/")
+        self.assertEqual(detail.data["total_payments"], "25.00")
+        self.assertEqual(detail.data["return_amount"], "100.00")

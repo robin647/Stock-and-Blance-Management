@@ -165,6 +165,10 @@ Stock adjustments set an exact quantity at either Factory or one selected Showro
 
 Wholesale invoices are immutable after creation. Their product quantities are deducted transactionally from the selected factory/showroom stock. Follow-on payments and item-level returns are separate immutable records. A return restores stock to the invoice's original location. Invoice outstanding due is kept nonnegative; return value beyond amounts still owed is recorded as a separate party/invoice credit. Invoice numbers are unique.
 
+Payments remain explicitly allocated to one invoice, matching the existing invoice-level account model; a payment cannot exceed that invoice's outstanding due. The party statement lists each sale by sale date, each payment by payment date, and each return by return date. Its debit-positive running balance starts with the full account balance before the selected start date; sales increase it and payments/returns reduce it. Any negative closing balance is shown separately as party credit. Return amounts must match the original sale unit price and cannot exceed the unreturned quantity/value. Optional API `Idempotency-Key` headers make payment and return retries safe. Parties are deactivated rather than hard-deleted.
+
+Wholesale routes include `/api/wholesale/parties/` (search with `?search=`), `/api/wholesale/parties/{id}/history/` (date/type/bill/product filters and pagination), `/api/wholesale/parties/{id}/statement/export/`, `/api/wholesale/invoices/`, `/api/wholesale/payments/`, `/api/wholesale/returns/`, `/api/wholesale/summary/`, and `/api/wholesale/summary/export/`. All financial endpoints require an authenticated Admin account.
+
 ### Apply migrations
 
 Run against a reachable local PostgreSQL database before starting the app:
@@ -174,7 +178,7 @@ cd backend
 python manage.py migrate
 ```
 
-The additive migrations are `products.0002_product_code`, `inventory.0004_stockadjustment`, and `wholesale.0001_initial`. They do not reset or rewrite existing product, showroom, or stock records. Existing product codes remain `NULL` until an Admin assigns them.
+The additive migrations are `products.0002_product_code`, `inventory.0004_stockadjustment`, `wholesale.0001_initial`, and `wholesale.0002_wholesaleparty_contact_person_and_more`. They do not reset or rewrite existing product, showroom, or stock records. Existing product codes remain `NULL` until an Admin assigns them.
 
 ### Verify locally
 

@@ -2,11 +2,11 @@ from collections import defaultdict
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum
+from django.utils.dateparse import parse_date
 from rest_framework import permissions, viewsets
 from rest_framework.filters import SearchFilter
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
@@ -19,6 +19,7 @@ from .serializers import (
     InvoiceSerializer, PartySerializer, PaymentCreateSerializer, PaymentSerializer,
     ReturnSerializer, StockAdjustmentSerializer,
 )
+from .services import all_party_summary
 
 
 class AdminOnlyViewSet(viewsets.ModelViewSet):
@@ -35,18 +36,57 @@ class PartyViewSet(AdminOnlyViewSet):
     queryset = WholesaleParty.objects.prefetch_related(
         "invoices__items", "invoices__items__returns", "invoices__payments"
     )
-    search_fields = ["name", "business_name", "phone"]
+    search_fields = ["name", "contact_person", "business_name", "phone"]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ["is_active"]
+
+    def destroy(self, request, *args, **kwargs):
+        raise MethodNotAllowed(request.method, detail="Deactivate parties instead of deleting account records.")
 
     @action(detail=True, methods=["get"])
     def history(self, request, pk=None):
         party = self.get_object()
-        invoices = party.invoices.prefetch_related("items__product", "items__returns", "payments")
+        filters = _validate_statement_filters(request.query_params)
+        page_size = StandardPageNumberPagination().get_page_size(request) or 20
+        try:
+            page_number = int(request.query_params.get("page", "1"))
+        except ValueError:
+            raise ValidationError({"page": "Page must be a positive integer."})
+        if page_number < 1:
+            raise ValidationError({"page": "Page must be a positive integer."})
+        from .services import party_account_statement
+
+        statement = party_account_statement(
+            party=party,
+            **filters,
+            limit=page_size,
+            offset=(page_number - 1) * page_size,
+        )
+        next_url = previous_url = None
+        if page_number * page_size < statement["count"]:
+            params = request.query_params.copy()
+            params["page"] = str(page_number + 1)
+            next_url = request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
+        if page_number > 1:
+            params = request.query_params.copy()
+            params["page"] = str(page_number - 1)
+            previous_url = request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
         return Response({
             "party": PartySerializer(party, context=self.get_serializer_context()).data,
-            "invoices": InvoiceSerializer(invoices, many=True).data,
+            "summary": statement["summary"],
+            "opening_balance": statement["opening_balance"],
+            "closing_balance": statement["closing_balance"],
+            "count": statement["count"],
+            "next": next_url,
+            "previous": previous_url,
+            "results": statement["results"],
         })
+
+    @action(detail=True, methods=["get"], url_path="statement/export")
+    def export_statement(self, request, pk=None):
+        from .excel_export import party_statement_excel
+
+        return party_statement_excel(self.get_object(), _validate_statement_filters(request.query_params))
 
 
 class InvoiceViewSet(AdminOnlyViewSet):
@@ -155,54 +195,7 @@ class PartySummaryView(APIView):
     def get(self, request):
         if request.user.role != "admin":
             raise PermissionDenied("Only Admin can access wholesale summaries.")
-        invoices = WholesaleInvoice.objects.select_related("party").prefetch_related("items__returns", "payments")
-        party_id = request.query_params.get("party")
-        invoice_number = request.query_params.get("invoice_number")
-        start_date = request.query_params.get("start_date")
-        end_date = request.query_params.get("end_date")
-        if party_id:
-            invoices = invoices.filter(party_id=party_id)
-        if invoice_number:
-            invoices = invoices.filter(invoice_number__icontains=invoice_number)
-        if start_date:
-            invoices = invoices.filter(sale_date__gte=start_date)
-        if end_date:
-            invoices = invoices.filter(sale_date__lte=end_date)
-
-        invoices = list(invoices)
-        if request.query_params.get("payment_status"):
-            desired_status = request.query_params["payment_status"]
-            invoices = [invoice for invoice in invoices if _payment_status(invoice) == desired_status]
-        rows = defaultdict(lambda: {"party_id": 0, "party_name": "", "total_sales": Decimal("0"),
-                                    "total_payments": Decimal("0"), "total_returns": Decimal("0"),
-                                    "total_due": Decimal("0"), "total_credit": Decimal("0"),
-                                    "total_products": 0, "last_purchase_date": None})
-        for party in WholesaleParty.objects.all():
-            if not party_id or str(party.pk) == party_id:
-                row = rows[party.pk]
-                row["party_id"] = party.pk
-                row["party_name"] = party.name
-        for invoice in invoices:
-            row = rows[invoice.party_id]
-            row["party_id"] = invoice.party_id
-            row["party_name"] = invoice.party.name
-            row["total_sales"] += invoice.gross_amount
-            row["total_payments"] += invoice.payment_total
-            row["total_returns"] += invoice.return_total
-            row["total_due"] += invoice.due_amount
-            row["total_credit"] += invoice.credit_amount
-            row["total_products"] += invoice.total_quantity
-            if row["last_purchase_date"] is None or invoice.sale_date > row["last_purchase_date"]:
-                row["last_purchase_date"] = invoice.sale_date
-        search = request.query_params.get("search", "").casefold()
-        result = [row for row in rows.values() if search in row["party_name"].casefold()]
-        ordering = request.query_params.get("ordering", "party_name")
-        sort_key = ordering.lstrip("-")
-        if sort_key in {"party_name", "total_sales", "total_payments", "total_returns", "total_due", "total_products", "last_purchase_date"}:
-            result.sort(key=lambda row: row[sort_key] or ("" if sort_key in {"party_name", "last_purchase_date"} else 0), reverse=ordering.startswith("-"))
-        totals = {key: sum((row[key] for row in result), Decimal("0")) for key in
-                  ["total_sales", "total_payments", "total_returns", "total_due", "total_credit"]}
-        totals["total_products"] = sum(row["total_products"] for row in result)
+        result, totals = all_party_summary(request.query_params)
         paginator = StandardPageNumberPagination()
         page = paginator.paginate_queryset(result, request, view=self)
         response = paginator.get_paginated_response(page)
@@ -255,3 +248,32 @@ def _payment_status(invoice):
     if invoice.payment_total > 0:
         return "partial"
     return "due"
+
+
+def _validate_statement_filters(params):
+    start_date = params.get("start_date") or None
+    end_date = params.get("end_date") or None
+    if start_date and not parse_date(start_date):
+        raise ValidationError({"start_date": "Use YYYY-MM-DD format."})
+    if end_date and not parse_date(end_date):
+        raise ValidationError({"end_date": "Use YYYY-MM-DD format."})
+    if start_date and end_date and start_date > end_date:
+        raise ValidationError({"end_date": "End date must be on or after the start date."})
+    transaction_type = params.get("transaction_type") or None
+    if transaction_type and transaction_type.lower() not in {"sale", "payment", "return"}:
+        raise ValidationError({"transaction_type": "Choose sale, payment, or return."})
+    product_id = params.get("product") or None
+    if product_id:
+        try:
+            product_id = int(product_id)
+            if product_id < 1:
+                raise ValueError
+        except ValueError:
+            raise ValidationError({"product": "Product must be a positive integer ID."})
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "transaction_type": transaction_type,
+        "invoice_number": params.get("invoice_number") or None,
+        "product_id": product_id,
+    }

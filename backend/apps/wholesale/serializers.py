@@ -22,7 +22,7 @@ class PartySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WholesaleParty
-        fields = ["id", "name", "phone", "address", "business_name", "notes", "is_active", "created_at",
+        fields = ["id", "name", "contact_person", "phone", "address", "business_name", "notes", "is_active", "created_at",
                   "total_sales", "total_payments", "total_returns", "total_due", "total_credit"]
         read_only_fields = ["id", "created_at", "total_sales", "total_payments", "total_returns", "total_due", "total_credit"]
 
@@ -33,7 +33,15 @@ class PartySerializer(serializers.ModelSerializer):
         returned = sum((invoice.return_total for invoice in invoices), Decimal("0.00"))
         due = sum((invoice.due_amount for invoice in invoices), Decimal("0.00"))
         credit = sum((invoice.credit_amount for invoice in invoices), Decimal("0.00"))
-        return gross, paid, returned, due, credit
+        return gross - returned, paid, returned, due, credit
+
+    def validate_name(self, value):
+        duplicates = WholesaleParty.objects.filter(name__iexact=value.strip())
+        if self.instance:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise serializers.ValidationError("A party with this name already exists.")
+        return value.strip()
 
     def get_total_sales(self, party):
         return self._totals(party)[0]
@@ -76,7 +84,7 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WholesalePayment
-        fields = ["id", "payment_date", "bank_amount", "bkash_amount", "cash_amount", "total_amount", "notes", "created_at"]
+        fields = ["id", "payment_date", "bank_amount", "bkash_amount", "cash_amount", "total_amount", "reference", "notes", "created_at"]
         read_only_fields = ["id", "created_at", "total_amount"]
 
 
@@ -90,6 +98,17 @@ class ReturnSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "invoice_number", "product_name"]
 
     def validate(self, attrs):
+        request = self.context.get("request")
+        idempotency_key = request.headers.get("Idempotency-Key") if request else None
+        if idempotency_key:
+            if len(idempotency_key) > 64:
+                raise serializers.ValidationError({"detail": "Idempotency-Key must be 64 characters or fewer."})
+            existing = WholesaleReturn.objects.filter(idempotency_key=idempotency_key).first()
+            if existing:
+                if existing.invoice_item_id != attrs["invoice_item"].pk:
+                    raise serializers.ValidationError({"detail": "Idempotency-Key was already used for another return."})
+                self.context["existing_return"] = existing
+                return attrs
         item = attrs["invoice_item"]
         quantity = attrs["quantity"]
         amount = attrs["amount"]
@@ -100,24 +119,36 @@ class ReturnSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"quantity": "Return quantity exceeds the eligible sold quantity."})
         if amount > remaining_value:
             raise serializers.ValidationError({"amount": "Return amount exceeds the remaining value of this item."})
+        if amount != item.unit_price * quantity:
+            raise serializers.ValidationError({"amount": "Return amount must use the original sale unit price."})
         return attrs
 
     @transaction.atomic
     def create(self, validated_data):
+        if self.context.get("existing_return"):
+            return self.context["existing_return"]
         item = WholesaleSaleItem.objects.select_related("invoice").select_for_update().get(
             pk=validated_data["invoice_item"].pk
         )
+        idempotency_key = self.context["request"].headers.get("Idempotency-Key")
+        if idempotency_key:
+            existing = WholesaleReturn.objects.filter(idempotency_key=idempotency_key).first()
+            if existing:
+                return existing
         invoice = item.invoice
         previous = item.returns.aggregate(quantity=Sum("quantity"), amount=Sum("amount"))
         if validated_data["quantity"] > item.quantity - (previous["quantity"] or 0):
             raise serializers.ValidationError({"quantity": "Return quantity exceeds the eligible sold quantity."})
         if validated_data["amount"] > item.line_total - (previous["amount"] or Decimal("0.00")):
             raise serializers.ValidationError({"amount": "Return amount exceeds the remaining value of this item."})
+        if validated_data["amount"] != item.unit_price * validated_data["quantity"]:
+            raise serializers.ValidationError({"amount": "Return amount must use the original sale unit price."})
         location, showroom = invoice.stock_location, invoice.showroom
         stock = _get_location_stock(item.product, location, showroom, lock=True)
         stock.quantity += validated_data["quantity"]
         stock.save(update_fields=["quantity", "updated_at"])
         validated_data["created_by"] = self.context["request"].user
+        validated_data["idempotency_key"] = idempotency_key or None
         return super().create(validated_data)
 
 
@@ -158,6 +189,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
         } for item in invoice.items.all() for entry in item.returns.all()]
 
     def validate(self, attrs):
+        party = attrs.get("party")
+        if party and not party.is_active:
+            raise serializers.ValidationError({"party": "Inactive parties cannot be used for new sales."})
         location = attrs.get("stock_location", "factory")
         showroom = attrs.get("showroom")
         if location == "showroom" and not showroom:
@@ -224,7 +258,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
 class PaymentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = WholesalePayment
-        fields = ["invoice", "payment_date", "bank_amount", "bkash_amount", "cash_amount", "notes"]
+        fields = ["invoice", "payment_date", "bank_amount", "bkash_amount", "cash_amount", "reference", "notes"]
 
     def validate(self, attrs):
         if not (attrs["bank_amount"] + attrs["bkash_amount"] + attrs["cash_amount"]):
@@ -234,11 +268,21 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         invoice = WholesaleInvoice.objects.select_for_update().get(pk=validated_data["invoice"].pk)
+        idempotency_key = self.context["request"].headers.get("Idempotency-Key")
+        if idempotency_key:
+            if len(idempotency_key) > 64:
+                raise serializers.ValidationError({"detail": "Idempotency-Key must be 64 characters or fewer."})
+            existing = WholesalePayment.objects.filter(idempotency_key=idempotency_key).first()
+            if existing:
+                if existing.invoice_id != invoice.pk:
+                    raise serializers.ValidationError({"detail": "Idempotency-Key was already used for another payment."})
+                return existing
         total = validated_data["bank_amount"] + validated_data["bkash_amount"] + validated_data["cash_amount"]
         if total > invoice.due_amount:
             raise serializers.ValidationError({"invoice": "Payment exceeds the outstanding invoice due."})
         validated_data["invoice"] = invoice
         validated_data["created_by"] = self.context["request"].user
+        validated_data["idempotency_key"] = idempotency_key or None
         return super().create(validated_data)
 
 
