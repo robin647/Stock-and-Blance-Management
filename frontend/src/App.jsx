@@ -8,6 +8,12 @@ import Reports from "./pages/Reports.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import Products from "./pages/admin/Products.jsx";
 import Showrooms from "./pages/admin/Showrooms.jsx";
+import StockAdjustments from "./pages/admin/StockAdjustments.jsx";
+import WholesaleParties from "./pages/admin/WholesaleParties.jsx";
+import WholesaleSales from "./pages/admin/WholesaleSales.jsx";
+import WholesaleReturns from "./pages/admin/WholesaleReturns.jsx";
+import AllPartiesSummary from "./pages/admin/AllPartiesSummary.jsx";
+import WholesaleReports from "./pages/admin/WholesaleReports.jsx";
 import BalanceEntry from "./pages/showroom/BalanceEntry.jsx";
 import ShowroomDashboard from "./pages/showroom/ShowroomDashboard.jsx";
 import StockEntry from "./pages/showroom/StockEntry.jsx";
@@ -47,6 +53,12 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/stock-adjustments" element={<ProtectedRoute requireAdmin><Layout><StockAdjustments /></Layout></ProtectedRoute>} />
+      <Route path="/wholesale/parties" element={<ProtectedRoute requireAdmin><Layout><WholesaleParties /></Layout></ProtectedRoute>} />
+      <Route path="/wholesale/sales" element={<ProtectedRoute requireAdmin><Layout><WholesaleSales /></Layout></ProtectedRoute>} />
+      <Route path="/wholesale/returns" element={<ProtectedRoute requireAdmin><Layout><WholesaleReturns /></Layout></ProtectedRoute>} />
+      <Route path="/wholesale/summary" element={<ProtectedRoute requireAdmin><Layout><AllPartiesSummary /></Layout></ProtectedRoute>} />
+      <Route path="/wholesale/reports" element={<ProtectedRoute requireAdmin><Layout><WholesaleReports /></Layout></ProtectedRoute>} />
 
       <Route
         path="/stock"

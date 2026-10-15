@@ -29,12 +29,18 @@ export default function Layout({ children }) {
             {isAdmin ? "Admin Panel" : user?.showroomName}
           </div>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {isAdmin ? (
             <>
               <NavLink onClick={() => setMenuOpen(false)} to="/" end className={linkClass}>Dashboard</NavLink>
               <NavLink onClick={() => setMenuOpen(false)} to="/showrooms" className={linkClass}>Showrooms</NavLink>
               <NavLink onClick={() => setMenuOpen(false)} to="/products" className={linkClass}>Products</NavLink>
+              <NavLink onClick={() => setMenuOpen(false)} to="/stock-adjustments" className={linkClass}>Product Stock Adjustment</NavLink>
+              <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/parties" className={linkClass}>Wholesale Parties</NavLink>
+              <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/sales" className={linkClass}>Wholesale Sales / New Invoice</NavLink>
+              <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/returns" className={linkClass}>Wholesale Returns</NavLink>
+              <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/summary" className={linkClass}>All Parties Summary</NavLink>
+              <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/reports" className={linkClass}>Wholesale Reports</NavLink>
               <NavLink onClick={() => setMenuOpen(false)} to="/reports" className={linkClass}>Reports</NavLink>
             </>
           ) : (

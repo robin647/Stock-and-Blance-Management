@@ -12,12 +12,13 @@ class ProductCategorySerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
+    code = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     initial_stock = serializers.IntegerField(min_value=0, write_only=True, required=True)
 
     class Meta:
         model = Product
         fields = [
-            "id", "name", "category", "category_name", "size",
+            "id", "name", "code", "category", "category_name", "size",
             "selling_price", "is_active", "initial_stock", "created_at",
         ]
         read_only_fields = ["id", "created_at"]
@@ -25,6 +26,16 @@ class ProductSerializer(serializers.ModelSerializer):
     def validate_selling_price(self, value):
         if value < 0:
             raise serializers.ValidationError("Selling price cannot be negative.")
+        return value
+
+    def validate_code(self, value):
+        if not value:
+            return None
+        duplicates = Product.objects.filter(code=value)
+        if self.instance:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise serializers.ValidationError("A product with this code already exists.")
         return value
 
     def validate(self, attrs):

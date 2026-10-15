@@ -8,7 +8,7 @@ export default function Products() {
   const [factoryStock, setFactoryStock] = useState({});
   const [showroomStock, setShowroomStock] = useState({});
   const [showrooms, setShowrooms] = useState([]);
-  const [form, setForm] = useState({ name: "", category: "", size: "", selling_price: "", initial_stock: "" });
+  const [form, setForm] = useState({ name: "", code: "", category: "", size: "", selling_price: "", initial_stock: "" });
   const [error, setError] = useState("");
 
   function loadAll() {
@@ -44,7 +44,7 @@ export default function Products() {
     setError("");
     try {
       await productApi.create(form);
-      setForm({ name: "", category: "", size: "", selling_price: "", initial_stock: "" });
+      setForm({ name: "", code: "", category: "", size: "", selling_price: "", initial_stock: "" });
       loadAll();
     } catch (err) {
       setError("Could not create product. Check the fields and try again.");
@@ -65,6 +65,7 @@ export default function Products() {
           <thead>
             <tr className="text-left text-gray-500 border-b border-gray-100">
               <th className="py-2">Name</th>
+              <th>Code</th>
               <th>Category</th>
               <th>Size</th>
               <th>Price</th>
@@ -78,6 +79,7 @@ export default function Products() {
             {products.map((p) => (
               <tr key={p.id} className="border-b border-gray-50">
                 <td className="py-2 font-medium">{p.name}</td>
+                <td className="text-gray-500">{p.code || "—"}</td>
                 <td className="text-gray-500">{p.category_name}</td>
                 <td className="text-gray-500">{p.size || "—"}</td>
                 <td>৳ {Number(p.selling_price).toLocaleString()}</td>
@@ -131,6 +133,12 @@ export default function Products() {
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="w-full mb-2 border border-gray-300 rounded-lg px-3 py-2 text-sm"
             required
+          />
+          <input
+            placeholder="Product code (optional)"
+            value={form.code}
+            onChange={(e) => setForm({ ...form, code: e.target.value })}
+            className="w-full mb-2 border border-gray-300 rounded-lg px-3 py-2 text-sm"
           />
           <select
             value={form.category}

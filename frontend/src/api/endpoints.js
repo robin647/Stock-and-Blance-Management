@@ -43,6 +43,39 @@ export const factoryStockApi = {
   list: (params) => api.get("/inventory/factory-stocks/", { params }),
 };
 
+export const stockAdjustmentApi = {
+  list: (params) => api.get("/wholesale/stock-adjustments/", { params }),
+  create: (data) => api.post("/wholesale/stock-adjustments/", data),
+};
+
+export const wholesalePartyApi = {
+  list: (params) => api.get("/wholesale/parties/", { params }),
+  create: (data) => api.post("/wholesale/parties/", data),
+  update: (id, data) => api.patch(`/wholesale/parties/${id}/`, data),
+  history: (id) => api.get(`/wholesale/parties/${id}/history/`),
+};
+
+export const wholesaleInvoiceApi = {
+  list: (params) => api.get("/wholesale/invoices/", { params }),
+  create: (data) => api.post("/wholesale/invoices/", data),
+};
+
+export const wholesalePaymentApi = {
+  list: (params) => api.get("/wholesale/payments/", { params }),
+  create: (data) => api.post("/wholesale/payments/", data),
+};
+
+export const wholesaleReturnApi = {
+  list: (params) => api.get("/wholesale/returns/", { params }),
+  create: (data) => api.post("/wholesale/returns/", data),
+};
+
+export const wholesaleReportApi = {
+  summary: (params) => api.get("/wholesale/summary/", { params }),
+  reports: (params) => api.get("/wholesale/reports/", { params }),
+  export: (params) => downloadFile("/wholesale/reports/export/", params, "wholesale-report.xlsx"),
+};
+
 export const showroomStockApi = {
   list: (params) => api.get("/inventory/showroom-stocks/", { params }),
 };

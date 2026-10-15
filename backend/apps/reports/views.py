@@ -5,7 +5,7 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.inventory.models import DailyBalance, StockTransfer
+from apps.inventory.models import DailyBalance, StockAdjustment, StockTransfer
 from apps.showrooms.models import Showroom
 
 from .helpers import resolve_showroom_scope
@@ -32,20 +32,54 @@ def stock_activity_for_date(showroom_id, target_date, product_id=None, category_
         )
         .order_by("product__name")
     )
-    rows = []
+    rows_by_product = {}
     for item in activity:
-        opening = (item["opening_received"] or 0) - (item["opening_sold"] or 0) - (item["opening_returned"] or 0)
-        received = item["received"] or 0
-        sold = item["sold"] or 0
-        returned = item["returned"] or 0
-        rows.append({
+        rows_by_product[item["product__id"]] = {
             "product_id": item["product__id"],
             "product": item["product__name"],
+            "opening_received": item["opening_received"] or 0,
+            "opening_sold": item["opening_sold"] or 0,
+            "opening_returned": item["opening_returned"] or 0,
+            "received": item["received"] or 0,
+            "sold": item["sold"] or 0,
+            "returned": item["returned"] or 0,
+            "adjusted": 0,
+            "opening_adjustment": 0,
+        }
+
+    adjustments = StockAdjustment.objects.filter(
+        location="showroom", showroom_id=showroom_id, created_at__date__lte=target_date
+    )
+    if product_id:
+        adjustments = adjustments.filter(product_id=product_id)
+    if category_id:
+        adjustments = adjustments.filter(product__category_id=category_id)
+    adjustment_activity = adjustments.values("product_id", "product__name").annotate(
+        opening_adjustment=Sum("difference", filter=Q(created_at__date__lt=target_date)),
+        adjusted=Sum("difference", filter=Q(created_at__date=target_date)),
+    )
+    for item in adjustment_activity:
+        row = rows_by_product.setdefault(item["product_id"], {
+            "product_id": item["product_id"], "product": item["product__name"],
+            "opening_received": 0, "opening_sold": 0, "opening_returned": 0,
+            "received": 0, "sold": 0, "returned": 0, "adjusted": 0, "opening_adjustment": 0,
+        })
+        row["opening_adjustment"] = item["opening_adjustment"] or 0
+        row["adjusted"] = item["adjusted"] or 0
+
+    rows = []
+    for item in rows_by_product.values():
+        opening = item["opening_received"] - item["opening_sold"] - item["opening_returned"] + item["opening_adjustment"]
+        received, sold, returned, adjusted = item["received"], item["sold"], item["returned"], item["adjusted"]
+        rows.append({
+            "product_id": item["product_id"],
+            "product": item["product"],
             "opening": opening,
             "received": received,
             "sold": sold,
             "return": returned,
-            "closing": opening + received - sold - returned,
+            "adjustment": adjusted,
+            "closing": opening + received - sold - returned + adjusted,
         })
     return rows
 
@@ -174,9 +208,29 @@ class MonthlyReportView(APIView):
             returned=Sum("quantity", filter=Q(transfer_type="return")),
         )
 
+        adjustment_qs = StockAdjustment.objects.filter(
+            location="showroom", created_at__year=year, created_at__month=month, showroom__in=showrooms_qs
+        )
+        if showroom_id:
+            adjustment_qs = adjustment_qs.filter(showroom_id=showroom_id)
+        if product_id:
+            adjustment_qs = adjustment_qs.filter(product_id=product_id)
+        if category_id:
+            adjustment_qs = adjustment_qs.filter(product__category_id=category_id)
+        adjustment_summary = adjustment_qs.values("product_id", "product__name").annotate(adjustment=Sum("difference"))
+        stock_rows = {row["product__id"]: row for row in stock_summary}
+        for adjustment in adjustment_summary:
+            row = stock_rows.setdefault(adjustment["product_id"], {
+                "product__id": adjustment["product_id"], "product__name": adjustment["product__name"],
+                "received": 0, "sold": 0, "returned": 0,
+            })
+            row["adjustment"] = adjustment["adjustment"] or 0
+        for row in stock_rows.values():
+            row.setdefault("adjustment", 0)
+
         return Response({
             "year": year,
             "month": month,
             "balance_summary": list(summary),
-            "stock_summary": list(stock_summary),
+            "stock_summary": list(stock_rows.values()),
         })

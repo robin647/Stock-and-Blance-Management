@@ -78,6 +78,30 @@ class StockTransfer(models.Model):
         return f"{self.showroom.name} - {self.get_transfer_type_display()} - {self.product.name} ({self.quantity})"
 
 
+class StockAdjustment(models.Model):
+    """Immutable audit record for an admin quantity correction at one location."""
+
+    LOCATION_CHOICES = [("factory", "Factory"), ("showroom", "Showroom")]
+
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="stock_adjustments")
+    location = models.CharField(max_length=20, choices=LOCATION_CHOICES)
+    showroom = models.ForeignKey(
+        Showroom, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_adjustments"
+    )
+    previous_quantity = models.PositiveIntegerField()
+    new_quantity = models.PositiveIntegerField()
+    difference = models.IntegerField()
+    reason = models.TextField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.product} {self.previous_quantity} -> {self.new_quantity}"
+
+
 class DailyStock(models.Model):
     """
     One row per (showroom, product, date).

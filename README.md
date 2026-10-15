@@ -156,3 +156,38 @@ Key business rules enforced server-side (not just in the UI):
 ## 6. Environment variable reference
 
 See `backend/.env.example` and `frontend/.env.example` for the full list.
+
+## 7. Stock Adjustments and Wholesale
+
+The Admin Panel now includes **Product Stock Adjustment**, **Wholesale Parties**, **Wholesale Sales / New Invoice**, **Wholesale Returns**, **All Parties Summary**, and **Wholesale Reports**. Product codes are optional for existing products and unique when supplied.
+
+Stock adjustments set an exact quantity at either Factory or one selected Showroom. Every adjustment stores its previous/new quantity, signed difference, reason, user, and timestamp; other inventory locations are not changed. Existing daily and monthly showroom reports include showroom adjustment deltas.
+
+Wholesale invoices are immutable after creation. Their product quantities are deducted transactionally from the selected factory/showroom stock. Follow-on payments and item-level returns are separate immutable records. A return restores stock to the invoice's original location. Invoice outstanding due is kept nonnegative; return value beyond amounts still owed is recorded as a separate party/invoice credit. Invoice numbers are unique.
+
+### Apply migrations
+
+Run against a reachable local PostgreSQL database before starting the app:
+
+```bash
+cd backend
+python manage.py migrate
+```
+
+The additive migrations are `products.0002_product_code`, `inventory.0004_stockadjustment`, and `wholesale.0001_initial`. They do not reset or rewrite existing product, showroom, or stock records. Existing product codes remain `NULL` until an Admin assigns them.
+
+### Verify locally
+
+```bash
+cd backend
+python manage.py check
+python manage.py test apps.inventory.tests apps.wholesale.tests
+cd ../frontend
+npm run build
+```
+
+Wholesale API routes are under `/api/wholesale/`; all management, invoice, payment, return, summary, and export endpoints are Admin-only and use the existing JWT authentication.
+
+### Deploy to Render
+
+Deploy the backend and frontend as usual, ensuring `DATABASE_URL` points at the existing Render PostgreSQL database. Before serving traffic on the new code, run `python manage.py migrate` once from the Render Shell (or use the configured release/build migration step). Then deploy the frontend build. Do not run `flush`, drop tables, or reset the database; no data reset is needed. The existing build may warn that the frontend JavaScript bundle exceeds Vite's default 500 kB advisory threshold; the build still completes successfully.

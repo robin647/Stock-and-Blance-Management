@@ -105,17 +105,17 @@ export default function Reports() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-gray-500 border-b border-gray-100">
-                      <th className="py-1">Product</th><th>Opening</th><th>Received</th><th>Sold</th><th>Return</th><th>Closing</th>
+                      <th className="py-1">Product</th><th>Opening</th><th>Received</th><th>Sold</th><th>Return</th><th>Adjustment</th><th>Closing</th>
                     </tr>
                   </thead>
                   <tbody>
                     {dailyData.stock.map((s, i) => (
                       <tr key={i} className="border-b border-gray-50">
-                        <td className="py-1">{s.product}</td><td>{s.opening}</td><td>{s.received}</td><td>{s.sold}</td><td>{s.return}</td><td>{s.closing}</td>
+                        <td className="py-1">{s.product}</td><td>{s.opening}</td><td>{s.received}</td><td>{s.sold}</td><td>{s.return}</td><td>{s.adjustment || 0}</td><td>{s.closing}</td>
                       </tr>
                     ))}
                     {dailyData.stock.length === 0 && (
-                      <tr><td colSpan={6} className="text-gray-400 py-3">No stock entries for this date.</td></tr>
+                      <tr><td colSpan={7} className="text-gray-400 py-3">No stock entries for this date.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -212,13 +212,13 @@ export default function Reports() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-gray-500 border-b border-gray-100">
-                      <th className="py-1">Product</th><th>Received</th><th>Sold</th><th>Return</th>
+                      <th className="py-1">Product</th><th>Received</th><th>Sold</th><th>Return</th><th>Adjustment</th>
                     </tr>
                   </thead>
                   <tbody>
                     {monthlyData.stock_summary.map((r, i) => (
                       <tr key={i} className="border-b border-gray-50">
-                        <td className="py-1">{r.product__name}</td><td>{r.received}</td><td>{r.sold}</td><td>{r.returned}</td>
+                        <td className="py-1">{r.product__name}</td><td>{r.received}</td><td>{r.sold}</td><td>{r.returned}</td><td>{r.adjustment || 0}</td>
                       </tr>
                     ))}
                   </tbody>

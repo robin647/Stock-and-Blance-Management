@@ -15,6 +15,7 @@ class ProductCategory(models.Model):
 
 class Product(models.Model):
     name = models.CharField(max_length=150)
+    code = models.CharField(max_length=40, unique=True, null=True, blank=True)
     category = models.ForeignKey(ProductCategory, on_delete=models.PROTECT, related_name="products")
     size = models.CharField(max_length=30, blank=True)
     selling_price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
