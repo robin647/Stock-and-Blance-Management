@@ -77,7 +77,13 @@ export default function Layout({ children }) {
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200/80 bg-white/90 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8 dark:bg-slate-900/90">
           <div className="flex items-center gap-3">
             <button onClick={() => setMenuOpen(true)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 md:hidden dark:text-slate-100">Menu</button>
-            <div className="hidden text-sm font-semibold text-gray-800 md:block dark:text-slate-100">{isAdmin ? "Administration" : user?.showroomName || "Showroom"}</div>
+            <div
+              aria-label="Mahir Sherwani"
+              title="Mahir Sherwani"
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold tracking-wide text-white shadow-md shadow-brand-500/20"
+            >
+              MS
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden text-sm text-gray-500 sm:block">{user?.fullName}</span>
