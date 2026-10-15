@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -131,6 +132,7 @@ SIMPLE_JWT = {
 
 # --- CORS ---
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+CORS_ALLOW_HEADERS = (*default_headers, "idempotency-key")
 
 # --- Logging ---
 LOGGING = {

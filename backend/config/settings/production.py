@@ -3,6 +3,14 @@ from .base import *  # noqa
 
 DEBUG = env.bool("DEBUG", default=False)
 
+# Keep the deployed frontend usable even if Render's CORS_ALLOWED_ORIGINS
+# setting has not been populated yet. The environment variable can still add
+# other trusted frontend origins.
+CORS_ALLOWED_ORIGINS = list(dict.fromkeys([
+    "https://stock-and-blance-management-1.onrender.com",
+    *env.list("CORS_ALLOWED_ORIGINS", default=[]),
+]))
+
 ALLOWED_HOSTS = env.list(
     "ALLOWED_HOSTS",
     default=[
