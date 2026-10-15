@@ -7,11 +7,22 @@ const tabOptions = ["sales", "payments", "returns"];
 const money = (amount) => `৳ ${Number(amount || 0).toLocaleString()}`;
 const rowsOf = (response) => response.data.results || response.data;
 
-function errorMessage(error) {
+function errorMessage(error, endpoint = "API request") {
   const body = error.response?.data;
-  if (!body) return "Request failed. Check your connection and try again.";
-  if (body.errors) return Object.values(body.errors).flat().join(" ");
-  return body.detail || Object.values(body).flat().join(" ") || "Request failed. Please check the entered values.";
+  const statusCode = error.response?.status;
+  if (!body) return `${endpoint}: request failed${statusCode ? ` (HTTP ${statusCode})` : ""}. Check the API URL and network connection.`;
+  if (body.errors) return `${endpoint}: ${Object.values(body.errors).flat().join(" ")}`;
+  const detail = typeof body === "string" ? body : body.detail || Object.values(body).flat().join(" ");
+  if (statusCode === 404) {
+    return `${endpoint}: endpoint not found (HTTP 404). Deploy the backend version containing the Easy Wholesale API routes.`;
+  }
+  if (statusCode === 401 || statusCode === 403) {
+    return `${endpoint}: access denied (HTTP ${statusCode}). Sign in again with an Admin account.`;
+  }
+  if (statusCode >= 500) {
+    return `${endpoint}: server error (HTTP ${statusCode}). Check backend logs and confirm database migrations have been applied. ${detail || ""}`;
+  }
+  return `${endpoint}: ${detail || "Request failed."}${statusCode ? ` (HTTP ${statusCode})` : ""}`;
 }
 
 export default function EasyWholesaleManagement() {
@@ -34,19 +45,29 @@ export default function EasyWholesaleManagement() {
   const submissionRef = useRef({ fingerprint: "", key: "" });
 
   async function loadLists(pages = { sales: 1, payments: 1, returns: 1 }) {
-    const [salesResponse, paymentsResponse, returnsResponse] = await Promise.all([
-      easyWholesaleApi.sales.list({ page: pages.sales, page_size: 20 }),
-      easyWholesaleApi.payments.list({ page: pages.payments, page_size: 20 }),
-      easyWholesaleApi.returns.list({ page: pages.returns, page_size: 20 }),
-    ]);
-    setSales(rowsOf(salesResponse));
-    setPayments(rowsOf(paymentsResponse));
-    setReturns(rowsOf(returnsResponse));
-    setHistoryPages({
-      sales: { page: pages.sales, count: salesResponse.data.count, next: salesResponse.data.next, previous: salesResponse.data.previous },
-      payments: { page: pages.payments, count: paymentsResponse.data.count, next: paymentsResponse.data.next, previous: paymentsResponse.data.previous },
-      returns: { page: pages.returns, count: returnsResponse.data.count, next: returnsResponse.data.next, previous: returnsResponse.data.previous },
+    const requests = [
+      { section: "sales", label: "Easy Sales API (/wholesale/easy/sales/)", request: easyWholesaleApi.sales.list({ page: pages.sales, page_size: 20 }) },
+      { section: "payments", label: "Easy Payments API (/wholesale/easy/payments/)", request: easyWholesaleApi.payments.list({ page: pages.payments, page_size: 20 }) },
+      { section: "returns", label: "Easy Returns API (/wholesale/easy/returns/)", request: easyWholesaleApi.returns.list({ page: pages.returns, page_size: 20 }) },
+    ];
+    const results = await Promise.allSettled(requests.map(({ request }) => request));
+    const failures = [];
+    results.forEach((result, index) => {
+      const { section, label } = requests[index];
+      if (result.status === "rejected") {
+        failures.push(errorMessage(result.reason, label));
+        return;
+      }
+      const { data } = result.value;
+      setHistoryPages((current) => ({
+        ...current,
+        [section]: { page: pages[section], count: data.count, next: data.next, previous: data.previous },
+      }));
+      if (section === "sales") setSales(rowsOf(result.value));
+      if (section === "payments") setPayments(rowsOf(result.value));
+      if (section === "returns") setReturns(rowsOf(result.value));
     });
+    if (failures.length) throw new Error(failures.join("\n"));
   }
 
   async function loadHistory(section, page) {
@@ -62,15 +83,25 @@ export default function EasyWholesaleManagement() {
   }
 
   useEffect(() => {
-    Promise.all([
-      productApi.list({ is_active: true, page_size: 200 }),
-      showroomApi.list({ page_size: 200 }),
-      loadLists(),
-    ]).then(([productResponse, showroomResponse]) => {
-      setProducts(rowsOf(productResponse));
-      setShowrooms(rowsOf(showroomResponse));
-      setStatus((current) => ({ ...current, loading: false }));
-    }).catch((error) => setStatus((current) => ({ ...current, loading: false, error: errorMessage(error) })));
+    const requests = [
+      { label: "Products API (/products/)", request: productApi.list({ is_active: true, page_size: 200 }) },
+      { label: "Showrooms API (/showrooms/)", request: showroomApi.list({ page_size: 200 }) },
+      { label: "Wholesale transaction histories", request: loadLists() },
+    ];
+    Promise.allSettled(requests.map(({ request }) => request)).then((results) => {
+      const failures = [];
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          failures.push(result.reason.message?.includes(" API (")
+            ? result.reason.message
+            : errorMessage(result.reason, requests[index].label));
+          return;
+        }
+        if (index === 0) setProducts(rowsOf(result.value));
+        if (index === 1) setShowrooms(rowsOf(result.value));
+      });
+      setStatus((current) => ({ ...current, loading: false, error: failures.join("\n") }));
+    });
   }, []);
 
   function updateParty(key, id) {
@@ -170,7 +201,7 @@ export default function EasyWholesaleManagement() {
       <header><h1 className="text-lg font-semibold">Easy Wholesale Sales Management</h1><p className="mt-1 text-sm text-gray-500">Quick party sales, separate dated payments, and returns. Existing Wholesale Sales remains a separate workflow.</p></header>
       <nav className="flex gap-2 border-b border-gray-200" aria-label="Easy wholesale transaction types">{tabOptions.map((option) => <button key={option} onClick={() => { setTab(option); setStatus((current) => ({ ...current, message: "", error: "" })); }} className={`border-b-2 px-4 py-2 text-sm capitalize ${tab === option ? "border-brand-500 font-semibold text-brand-700" : "border-transparent text-gray-600"}`}>{option}</button>)}</nav>
       {status.message && <div role="status" className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{status.message}</div>}
-      {status.error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{status.error}</div>}
+      {status.error && <div role="alert" className="whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{status.error}</div>}
       {status.loading ? <p className="py-10 text-center text-sm text-gray-500">Loading easy wholesale records...</p> : <>
         {tab === "sales" && <>
           <form onSubmit={submitSale} className="grid gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
