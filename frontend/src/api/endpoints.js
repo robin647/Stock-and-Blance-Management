@@ -62,6 +62,21 @@ export const wholesaleInvoiceApi = {
   create: (data) => api.post("/wholesale/invoices/", data),
 };
 
+export const easyWholesaleApi = {
+  sales: {
+    list: (params) => api.get("/wholesale/easy/sales/", { params }),
+    create: (data, idempotencyKey) => api.post("/wholesale/easy/sales/", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {} }),
+  },
+  payments: {
+    list: (params) => api.get("/wholesale/easy/payments/", { params }),
+    create: (data, idempotencyKey) => api.post("/wholesale/easy/payments/", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {} }),
+  },
+  returns: {
+    list: (params) => api.get("/wholesale/easy/returns/", { params }),
+    create: (data, idempotencyKey) => api.post("/wholesale/easy/returns/", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {} }),
+  },
+};
+
 export const wholesalePaymentApi = {
   list: (params) => api.get("/wholesale/payments/", { params }),
   create: (data, idempotencyKey) => api.post("/wholesale/payments/", data, { headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {} }),

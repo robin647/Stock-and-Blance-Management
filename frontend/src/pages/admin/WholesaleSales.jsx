@@ -6,6 +6,12 @@ const listOf = (response) => response.data.results || response.data;
 const today = new Date().toISOString().slice(0, 10);
 const line = () => ({ product: "", quantity: 1, unit_price: "" });
 const money = (amount) => `৳ ${Number(amount || 0).toLocaleString()}`;
+const apiError = (error) => {
+  const data = error.response?.data;
+  if (!data) return "Request failed. Check your connection and try again.";
+  if (data.errors) return Object.values(data.errors).flat().join(" ");
+  return data.detail || Object.values(data).flat().join(" ") || "Could not save the transaction.";
+};
 
 export default function WholesaleSales() {
   const [parties, setParties] = useState([]);
@@ -16,6 +22,7 @@ export default function WholesaleSales() {
   const [payment, setPayment] = useState({ invoice: "", payment_date: today, bank_amount: "0", bkash_amount: "0", cash_amount: "0", reference: "", notes: "" });
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [paymentSaving, setPaymentSaving] = useState(false);
   const paymentKeyRef = useRef({ payload: "", key: "" });
 
   async function load() {
@@ -57,18 +64,18 @@ export default function WholesaleSales() {
       await wholesaleInvoiceApi.create({ ...form, party: Number(form.party), showroom: form.stock_location === "showroom" ? Number(form.showroom) : null, items: form.items.map((item) => ({ ...item, product: Number(item.product), quantity: Number(item.quantity), unit_price: Number(item.unit_price) })) });
       setMessage("Cash memo saved and inventory updated.");
       setForm((current) => ({ ...current, invoice_number: "", notes: "", items: [line()] }));
-      await load();
+      try { await load(); } catch { setMessage("Cash memo saved, but the history refresh failed. Reload the page to view it."); }
     } catch (error) {
-      setMessage(error.response?.data?.detail || JSON.stringify(error.response?.data || "Could not save invoice."));
+      setMessage(apiError(error));
     } finally {
       setSaving(false);
     }
   }
-          <label className="block text-xs text-gray-500">Payment reference / transaction ID<input value={payment.reference} onChange={(event) => setPayment({ ...payment, reference: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>
-
   async function recordPayment(event) {
     event.preventDefault();
+    if (paymentSaving) return;
     setMessage("");
+    setPaymentSaving(true);
     try {
       const payload = { ...payment, invoice: Number(payment.invoice), bank_amount: Number(payment.bank_amount), bkash_amount: Number(payment.bkash_amount), cash_amount: Number(payment.cash_amount) };
       const fingerprint = JSON.stringify(payload);
@@ -77,9 +84,11 @@ export default function WholesaleSales() {
       paymentKeyRef.current = { payload: "", key: "" };
       setPayment((current) => ({ ...current, bank_amount: "0", bkash_amount: "0", cash_amount: "0", reference: "", notes: "" }));
       setMessage("Payment recorded against the selected invoice.");
-      await load();
+      try { await load(); } catch { setMessage("Payment saved, but the invoice history refresh failed. Reload the page to view it."); }
     } catch (error) {
-      setMessage(error.response?.data?.detail || JSON.stringify(error.response?.data || "Could not record payment."));
+      setMessage(apiError(error));
+    } finally {
+      setPaymentSaving(false);
     }
   }
 
@@ -114,7 +123,8 @@ export default function WholesaleSales() {
           <label className="block text-xs text-gray-500">Invoice<select required value={payment.invoice} onChange={(event) => setPayment({ ...payment, invoice: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"><option value="">Select invoice</option>{invoices.filter((invoice) => Number(invoice.due_amount) > 0).map((invoice) => <option key={invoice.id} value={invoice.id}>{invoice.invoice_number} · {invoice.party_name} · due {money(invoice.due_amount)}</option>)}</select></label>
           <label className="block text-xs text-gray-500">Payment date<input type="date" required value={payment.payment_date} onChange={(event) => setPayment({ ...payment, payment_date: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>
           {[["bank_amount", "Bank"], ["bkash_amount", "bKash"], ["cash_amount", "Cash"]].map(([key, label]) => <label key={key} className="block text-xs text-gray-500">{label}<input type="number" min="0" step="0.01" required value={payment[key]} onChange={(event) => setPayment({ ...payment, [key]: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>)}
-          <button className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium">Record payment</button>
+          <label className="block text-xs text-gray-500">Payment reference / transaction ID<input value={payment.reference} onChange={(event) => setPayment({ ...payment, reference: event.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900" /></label>
+          <button disabled={paymentSaving} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium disabled:opacity-50">{paymentSaving ? "Saving..." : "Record payment"}</button>
         </form>
       </div>
       <section className="overflow-hidden rounded-xl border border-gray-200 bg-white"><h2 className="border-b border-gray-100 px-4 py-3 text-sm font-semibold">Invoices</h2><div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-gray-50 text-xs uppercase text-gray-500"><tr><th className="px-4 py-3">Date</th><th>Invoice</th><th>Party</th><th>Quantity</th><th>Sale</th><th>Payment</th><th>Returns</th><th>Due</th><th>Location</th></tr></thead><tbody>{invoices.map((invoice) => <tr key={invoice.id} className="border-t border-gray-100"><td className="px-4 py-3">{invoice.sale_date}</td><td className="font-medium">{invoice.invoice_number}</td><td>{invoice.party_name}</td><td>{invoice.total_quantity}</td><td>{money(invoice.gross_amount)}</td><td>{money(invoice.total_payments)}</td><td>{money(invoice.return_amount)}</td><td className="font-semibold">{money(invoice.due_amount)}</td><td>{invoice.stock_location === "factory" ? "Factory" : "Showroom"}</td></tr>)}</tbody></table></div></section>

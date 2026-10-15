@@ -169,6 +169,14 @@ Payments remain explicitly allocated to one invoice, matching the existing invoi
 
 Wholesale routes include `/api/wholesale/parties/` (search with `?search=`), `/api/wholesale/parties/{id}/history/` (date/type/bill/product filters and pagination), `/api/wholesale/parties/{id}/statement/export/`, `/api/wholesale/invoices/`, `/api/wholesale/payments/`, `/api/wholesale/returns/`, `/api/wholesale/summary/`, and `/api/wholesale/summary/export/`. All financial endpoints require an authenticated Admin account.
 
+### Easy Wholesale Sales Management
+
+The separate **Easy Wholesale Sales Management** page offers Sales, Payments, and Returns histories using existing parties. Its APIs are `/api/wholesale/easy/sales/`, `/api/wholesale/easy/payments/`, and `/api/wholesale/easy/returns/` (GET lists and POST creates; finalized transactions are immutable). Easy payments are party-level ledger transactions and do not require or modify an invoice. Easy returns can be financial-only, or linked to an Easy sale to validate remaining quantity and restore stock at that sale's original selected location. A standalone physical return changes stock only when an Admin explicitly selects a product and destination. A sale only moves inventory when an Admin explicitly selects a catalog product and factory/showroom location; product-name-only and product-free sales are financial-only.
+
+All Easy transactions are included once in the existing selected-party statement and All Parties Summary. Easy events retain their own date and transaction type. Existing invoice-linked Wholesale Sales, payments, and returns remain on their original APIs and screens.
+
+Apply the new migrations `wholesale.0003_easywholesalesale_easywholesalereturn_and_more`, `wholesale.0004_easywholesalestockmovement`, and `wholesale.0005_easywholesalestockmovement_easy_stock_move_matches_transaction_and_more` with the standard `python manage.py migrate` step before deploying the new routes. These are forward-only additions and preserve existing invoice, payment, return, party, and stock data.
+
 ### Apply migrations
 
 Run against a reachable local PostgreSQL database before starting the app:

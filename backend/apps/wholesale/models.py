@@ -117,3 +117,125 @@ class WholesaleReturn(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["return_date", "invoice_item"])]
+
+
+class EasyWholesaleSale(models.Model):
+    STOCK_LOCATION_CHOICES = [("factory", "Factory"), ("showroom", "Showroom")]
+
+    party = models.ForeignKey(WholesaleParty, on_delete=models.PROTECT, related_name="easy_sales")
+    sale_date = models.DateField()
+    bill_number = models.CharField(max_length=80, blank=True)
+    product = models.ForeignKey(
+        Product, null=True, blank=True, on_delete=models.PROTECT, related_name="easy_wholesale_sales"
+    )
+    product_name = models.CharField(max_length=180, blank=True)
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    stock_location = models.CharField(max_length=20, choices=STOCK_LOCATION_CHOICES, null=True, blank=True)
+    showroom = models.ForeignKey(
+        Showroom, null=True, blank=True, on_delete=models.PROTECT, related_name="easy_wholesale_sales"
+    )
+    notes = models.TextField(blank=True)
+    idempotency_key = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-sale_date", "-created_at", "-id"]
+        indexes = [models.Index(fields=["party", "sale_date"]), models.Index(fields=["bill_number"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["bill_number"], condition=~models.Q(bill_number=""), name="unique_easy_wholesale_bill"
+            )
+        ]
+
+    def __str__(self):
+        return self.bill_number or f"Easy sale {self.pk}"
+
+
+class EasyWholesalePayment(models.Model):
+    party = models.ForeignKey(WholesaleParty, on_delete=models.PROTECT, related_name="easy_payments")
+    payment_date = models.DateField()
+    bank_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    bkash_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    cash_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    reference = models.CharField(max_length=120, blank=True)
+    notes = models.TextField(blank=True)
+    idempotency_key = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-payment_date", "-created_at", "-id"]
+        indexes = [models.Index(fields=["party", "payment_date"])]
+
+    @property
+    def total_amount(self):
+        return self.bank_amount + self.bkash_amount + self.cash_amount
+
+
+class EasyWholesaleReturn(models.Model):
+    party = models.ForeignKey(WholesaleParty, on_delete=models.PROTECT, related_name="easy_returns")
+    return_date = models.DateField()
+    original_bill_number = models.CharField(max_length=80, blank=True)
+    easy_sale = models.ForeignKey(
+        EasyWholesaleSale, null=True, blank=True, on_delete=models.PROTECT, related_name="returns"
+    )
+    product = models.ForeignKey(
+        Product, null=True, blank=True, on_delete=models.PROTECT, related_name="easy_wholesale_returns"
+    )
+    product_name = models.CharField(max_length=180, blank=True)
+    stock_location = models.CharField(max_length=20, choices=EasyWholesaleSale.STOCK_LOCATION_CHOICES, null=True, blank=True)
+    showroom = models.ForeignKey(
+        Showroom, null=True, blank=True, on_delete=models.PROTECT, related_name="easy_wholesale_returns"
+    )
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    notes = models.TextField(blank=True)
+    idempotency_key = models.CharField(max_length=64, unique=True, null=True, blank=True, editable=False)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-return_date", "-created_at", "-id"]
+        indexes = [models.Index(fields=["party", "return_date"]), models.Index(fields=["original_bill_number"])]
+
+
+class EasyWholesaleStockMovement(models.Model):
+    MOVEMENT_CHOICES = [("sale", "Easy wholesale sale"), ("return", "Easy wholesale return")]
+
+    movement_type = models.CharField(max_length=12, choices=MOVEMENT_CHOICES)
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="easy_wholesale_stock_movements")
+    stock_location = models.CharField(max_length=20, choices=EasyWholesaleSale.STOCK_LOCATION_CHOICES)
+    showroom = models.ForeignKey(Showroom, null=True, blank=True, on_delete=models.PROTECT, related_name="easy_wholesale_stock_movements")
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    movement_date = models.DateField()
+    easy_sale = models.OneToOneField(
+        EasyWholesaleSale, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_movement"
+    )
+    easy_return = models.OneToOneField(
+        EasyWholesaleReturn, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_movement"
+    )
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-movement_date", "-created_at"]
+        indexes = [models.Index(fields=["product", "movement_date"])]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(movement_type="sale", easy_sale__isnull=False, easy_return__isnull=True)
+                    | models.Q(movement_type="return", easy_sale__isnull=True, easy_return__isnull=False)
+                ),
+                name="easy_stock_move_matches_transaction",
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(stock_location="factory", showroom__isnull=True)
+                    | models.Q(stock_location="showroom", showroom__isnull=False)
+                ),
+                name="easy_stock_move_valid_location",
+            ),
+        ]

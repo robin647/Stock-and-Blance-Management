@@ -5,6 +5,12 @@ import PartyCombobox from "../../components/PartyCombobox.jsx";
 const blankForm = { name: "", contact_person: "", phone: "", address: "", business_name: "", notes: "", is_active: true };
 const today = new Date().toISOString().slice(0, 10);
 const money = (amount) => `৳ ${Number(amount || 0).toLocaleString()}`;
+const apiError = (error) => {
+  const data = error.response?.data;
+  if (!data) return "Request failed. Check your connection and try again.";
+  if (data.errors) return Object.values(data.errors).flat().join(" ");
+  return data.detail || Object.values(data).flat().join(" ") || "Could not record payment.";
+};
 
 export default function WholesaleParties() {
   const [parties, setParties] = useState([]);
@@ -65,8 +71,10 @@ export default function WholesaleParties() {
       const { data } = await wholesalePartyApi.history(selectedParty.id, params);
       setStatement(data);
       setStatementPage(page);
+      return true;
     } catch {
       setMessage("Could not load the selected party statement.");
+      return false;
     } finally {
       setStatementLoading(false);
     }
@@ -138,9 +146,9 @@ export default function WholesaleParties() {
       paymentKeyRef.current = { payload: "", key: "" };
       setPaymentOpen(false);
       setMessage("Payment recorded on its payment date and allocated to the selected invoice.");
-      await loadStatement(1);
+      if (!(await loadStatement(1))) setMessage("Payment saved, but the statement could not refresh. Reload it to view the transaction.");
     } catch (error) {
-      setMessage(error.response?.data?.detail || "Could not record payment. Check the invoice due and amounts.");
+      setMessage(apiError(error));
     } finally {
       setPaymentBusy(false);
     }
@@ -180,7 +188,7 @@ export default function WholesaleParties() {
               <div className="flex items-end gap-2"><button className="flex-1 rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white">Apply Filter</button><button type="button" onClick={() => { const empty = { start_date: "", end_date: "", transaction_type: "", invoice_number: "", product: "" }; setDraftFilters(empty); setAppliedFilters(empty); setStatementPage(1); }} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">Reset</button></div>
             </form>
             <p className="text-xs text-gray-500">Running balance uses debit-positive convention: sales increase the balance; payments and accepted returns reduce it. Negative balances are customer credit.</p>
-            {statementLoading ? <p className="py-8 text-center text-sm text-gray-500">Loading account statement...</p> : !statement?.results?.length ? <p className="py-8 text-center text-sm text-gray-500">No transactions match this date range and filters.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[1320px] text-left text-xs"><thead className="bg-gray-50 text-[11px] uppercase text-gray-500"><tr><th className="px-3 py-3">Transaction Date</th><th>Type</th><th>Cash Memo / Bill</th><th>Product Qty</th><th>Gross Sale</th><th>Bank</th><th>bKash</th><th>Cash</th><th>Total Payment</th><th>Return Qty</th><th>Return Amount</th><th>Net Transaction</th><th>Running Balance</th><th>Payment Reference</th><th>Notes</th></tr></thead><tbody>{statement.results.map((row) => <tr key={`${row.type}-${row.id}`} className="border-t border-gray-100"><td className="whitespace-nowrap px-3 py-3">{row.date}</td><td className="capitalize">{row.type}</td><td>{row.invoice_number}</td><td>{row.quantity || "—"}</td><td>{Number(row.gross_sale) ? money(row.gross_sale) : "—"}</td><td>{Number(row.bank_payment) ? money(row.bank_payment) : "—"}</td><td>{Number(row.bkash_payment) ? money(row.bkash_payment) : "—"}</td><td>{Number(row.cash_payment) ? money(row.cash_payment) : "—"}</td><td>{Number(row.total_payment) ? money(row.total_payment) : "—"}</td><td>{row.return_quantity || "—"}</td><td>{Number(row.return_amount) ? money(row.return_amount) : "—"}</td><td>{money(row.net_amount)}</td><td className="font-semibold">{money(row.running_balance)}</td><td>{row.reference || "—"}</td><td>{row.notes || "—"}</td></tr>)}</tbody></table></div>}
+            {statementLoading ? <p className="py-8 text-center text-sm text-gray-500">Loading account statement...</p> : !statement?.results?.length ? <p className="py-8 text-center text-sm text-gray-500">No transactions match this date range and filters.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[1400px] text-left text-xs"><thead className="bg-gray-50 text-[11px] uppercase text-gray-500"><tr><th className="px-3 py-3">Transaction Date</th><th>Type</th><th>Party</th><th>Cash Memo / Bill</th><th>Product</th><th>Product Qty</th><th>Gross Sale</th><th>Bank</th><th>bKash</th><th>Cash</th><th>Total Payment</th><th>Return Qty</th><th>Return Amount</th><th>Net Transaction</th><th>Running Balance</th><th>Payment Reference</th><th>Notes</th></tr></thead><tbody>{statement.results.map((row) => <tr key={`${row.source || "legacy"}-${row.type}-${row.id}`} className="border-t border-gray-100"><td className="whitespace-nowrap px-3 py-3">{row.date}</td><td className="capitalize">{row.type}</td><td>{selectedParty.name}</td><td>{row.invoice_number || "—"}</td><td>{row.product_name || "—"}</td><td>{row.quantity || "—"}</td><td>{Number(row.gross_sale) ? money(row.gross_sale) : "—"}</td><td>{Number(row.bank_payment) ? money(row.bank_payment) : "—"}</td><td>{Number(row.bkash_payment) ? money(row.bkash_payment) : "—"}</td><td>{Number(row.cash_payment) ? money(row.cash_payment) : "—"}</td><td>{Number(row.total_payment) ? money(row.total_payment) : "—"}</td><td>{row.return_quantity || "—"}</td><td>{Number(row.return_amount) ? money(row.return_amount) : "—"}</td><td>{money(row.net_amount)}</td><td className="font-semibold">{money(row.running_balance)}</td><td>{row.reference || "—"}</td><td>{row.notes || "—"}</td></tr>)}</tbody></table></div>}
             <div className="flex items-center justify-between text-sm text-gray-600"><span>{statement?.count || 0} transactions · Opening {money(statement?.opening_balance)} · Closing {money(statement?.closing_balance)}</span><div className="flex gap-2"><button disabled={statementPage <= 1 || statementLoading} onClick={() => loadStatement(statementPage - 1)} className="rounded border border-gray-300 px-3 py-1 disabled:opacity-40">Previous</button><button disabled={statementPage >= totalPages || statementLoading} onClick={() => loadStatement(statementPage + 1)} className="rounded border border-gray-300 px-3 py-1 disabled:opacity-40">Next</button></div></div>
           </>}
         </div>

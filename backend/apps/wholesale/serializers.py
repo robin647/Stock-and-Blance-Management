@@ -4,13 +4,15 @@ from django.db import transaction
 from django.db.models import Sum
 from rest_framework import serializers
 
-from apps.inventory.models import FactoryStock, ShowroomStock, StockAdjustment
+from apps.inventory.models import StockAdjustment
 from apps.inventory.services import adjust_stock
 from apps.products.models import Product
 
 from .models import (
+    EasyWholesalePayment, EasyWholesaleReturn, EasyWholesaleSale,
     WholesaleInvoice, WholesaleParty, WholesalePayment, WholesaleReturn, WholesaleSaleItem,
 )
+from .services import record_easy_stock_movement
 
 
 class PartySerializer(serializers.ModelSerializer):
@@ -27,13 +29,37 @@ class PartySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "total_sales", "total_payments", "total_returns", "total_due", "total_credit"]
 
     def _totals(self, party):
+        cached = getattr(self, "_party_totals_cache", None)
+        if cached is None:
+            cached = self._party_totals_cache = {}
+        if party.pk in cached:
+            return cached[party.pk]
+        supplied_totals = self.context.get("party_totals", {}).get(party.pk)
+        if supplied_totals:
+            totals = (
+                supplied_totals["total_sales"], supplied_totals["total_payments"],
+                supplied_totals["total_returns"], supplied_totals["total_due"],
+                supplied_totals["total_credit"],
+            )
+            cached[party.pk] = totals
+            return totals
         invoices = party.invoices.all()
         gross = sum((invoice.gross_amount for invoice in invoices), Decimal("0.00"))
         paid = sum((invoice.payment_total for invoice in invoices), Decimal("0.00"))
         returned = sum((invoice.return_total for invoice in invoices), Decimal("0.00"))
         due = sum((invoice.due_amount for invoice in invoices), Decimal("0.00"))
         credit = sum((invoice.credit_amount for invoice in invoices), Decimal("0.00"))
-        return gross - returned, paid, returned, due, credit
+        easy_sales = party.easy_sales.aggregate(gross=Sum("total_amount"), quantity=Sum("quantity"))
+        easy_payments = party.easy_payments.aggregate(bank=Sum("bank_amount"), bkash=Sum("bkash_amount"), cash=Sum("cash_amount"))
+        easy_returns = party.easy_returns.aggregate(amount=Sum("amount"))
+        easy_gross = easy_sales["gross"] or Decimal("0.00")
+        easy_paid = sum((easy_payments[key] or Decimal("0.00") for key in ("bank", "bkash", "cash")), Decimal("0.00"))
+        easy_returned = easy_returns["amount"] or Decimal("0.00")
+        easy_balance = easy_gross - easy_paid - easy_returned
+        totals = (gross - returned + easy_gross - easy_returned, paid + easy_paid, returned + easy_returned,
+              due + max(Decimal("0.00"), easy_balance), credit + max(Decimal("0.00"), -easy_balance))
+        cached[party.pk] = totals
+        return totals
 
     def validate_name(self, value):
         duplicates = WholesaleParty.objects.filter(name__iexact=value.strip())
@@ -192,6 +218,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
         party = attrs.get("party")
         if party and not party.is_active:
             raise serializers.ValidationError({"party": "Inactive parties cannot be used for new sales."})
+        bill_number = attrs.get("invoice_number")
+        if bill_number and EasyWholesaleSale.objects.filter(bill_number__iexact=bill_number).exists():
+            raise serializers.ValidationError({"invoice_number": "This cash memo number is already used by an Easy wholesale sale."})
         location = attrs.get("stock_location", "factory")
         showroom = attrs.get("showroom")
         if location == "showroom" and not showroom:
@@ -284,6 +313,206 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = self.context["request"].user
         validated_data["idempotency_key"] = idempotency_key or None
         return super().create(validated_data)
+
+
+class EasyWholesaleSaleSerializer(serializers.ModelSerializer):
+    party_name = serializers.CharField(source="party.name", read_only=True)
+    product_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EasyWholesaleSale
+        fields = ["id", "party", "party_name", "sale_date", "bill_number", "product", "product_name",
+                  "product_label", "quantity", "total_amount", "stock_location", "showroom", "notes", "created_at"]
+        read_only_fields = ["id", "party_name", "product_label", "created_at"]
+
+    def get_product_label(self, sale):
+        return sale.product.name if sale.product else sale.product_name
+
+    def validate(self, attrs):
+        party = attrs.get("party")
+        if party and not party.is_active:
+            raise serializers.ValidationError({"party": "Inactive parties cannot be used for new sales."})
+        bill_number = attrs.get("bill_number", "").strip()
+        if bill_number and WholesaleInvoice.objects.filter(invoice_number__iexact=bill_number).exists():
+            raise serializers.ValidationError({"bill_number": "This cash memo number already exists in Wholesale Sales."})
+        if bill_number:
+            attrs["bill_number"] = bill_number
+        product = attrs.get("product")
+        location = attrs.get("stock_location")
+        showroom = attrs.get("showroom")
+        if location == "showroom" and not showroom:
+            raise serializers.ValidationError({"showroom": "Choose a showroom when using showroom stock."})
+        if location == "factory" and showroom:
+            raise serializers.ValidationError({"showroom": "Factory stock sales cannot specify a showroom."})
+        if location and not product:
+            raise serializers.ValidationError({"product": "Select a real product before changing inventory."})
+        if not product and location:
+            raise serializers.ValidationError({"stock_location": "A financial-only sale must not select an inventory location."})
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        request = self.context["request"]
+        key = request.headers.get("Idempotency-Key")
+        if key:
+            if len(key) > 64:
+                raise serializers.ValidationError({"detail": "Idempotency-Key must be 64 characters or fewer."})
+            existing = EasyWholesaleSale.objects.filter(idempotency_key=key).first()
+            if existing:
+                comparable_fields = ["sale_date", "bill_number", "product_name", "quantity", "total_amount", "stock_location", "notes"]
+                same_payload = existing.party_id == validated_data["party"].pk and existing.product_id == getattr(validated_data.get("product"), "pk", None)
+                same_payload = same_payload and existing.showroom_id == getattr(validated_data.get("showroom"), "pk", None)
+                same_payload = same_payload and all(getattr(existing, field) == validated_data.get(field, getattr(existing, field)) for field in comparable_fields)
+                if not same_payload:
+                    raise serializers.ValidationError({"detail": "Idempotency-Key was already used for a different sale."})
+                return existing
+        validated_data["created_by"] = request.user
+        validated_data["idempotency_key"] = key or None
+        product = validated_data.get("product")
+        sale = super().create(validated_data)
+        if product and sale.stock_location:
+            try:
+                record_easy_stock_movement(
+                    movement_type="sale", product=product, stock_location=sale.stock_location,
+                    showroom=sale.showroom, quantity=sale.quantity, movement_date=sale.sale_date,
+                    user=request.user, sale=sale, notes=sale.notes,
+                )
+            except ValueError as error:
+                raise serializers.ValidationError({"quantity": str(error)}) from error
+        return sale
+
+    def update(self, instance, validated_data):
+        raise serializers.ValidationError("Saved easy sales are immutable; use an audited correction workflow.")
+
+
+class EasyWholesalePaymentSerializer(serializers.ModelSerializer):
+    party_name = serializers.CharField(source="party.name", read_only=True)
+    total_amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = EasyWholesalePayment
+        fields = ["id", "party", "party_name", "payment_date", "bank_amount", "bkash_amount", "cash_amount",
+                  "total_amount", "reference", "notes", "created_at"]
+        read_only_fields = ["id", "party_name", "total_amount", "created_at"]
+
+    def validate(self, attrs):
+        if not any(attrs.get(field, Decimal("0")) > 0 for field in ("bank_amount", "bkash_amount", "cash_amount")):
+            raise serializers.ValidationError({"total_amount": "Enter a positive amount in at least one payment method."})
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        request = self.context["request"]
+        key = request.headers.get("Idempotency-Key")
+        if key:
+            if len(key) > 64:
+                raise serializers.ValidationError({"detail": "Idempotency-Key must be 64 characters or fewer."})
+            existing = EasyWholesalePayment.objects.filter(idempotency_key=key).first()
+            if existing:
+                same_payload = existing.party_id == validated_data["party"].pk and all(
+                    getattr(existing, field) == validated_data.get(field, getattr(existing, field))
+                    for field in ["payment_date", "bank_amount", "bkash_amount", "cash_amount", "reference", "notes"]
+                )
+                if not same_payload:
+                    raise serializers.ValidationError({"detail": "Idempotency-Key was already used for a different payment."})
+                return existing
+        validated_data["created_by"] = request.user
+        validated_data["idempotency_key"] = key or None
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        raise serializers.ValidationError("Saved easy payments are immutable.")
+
+
+class EasyWholesaleReturnSerializer(serializers.ModelSerializer):
+    party_name = serializers.CharField(source="party.name", read_only=True)
+    product_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EasyWholesaleReturn
+        fields = ["id", "party", "party_name", "return_date", "original_bill_number", "easy_sale", "product",
+                  "product_name", "product_label", "quantity", "amount", "stock_location", "showroom", "notes", "created_at"]
+        read_only_fields = ["id", "party_name", "product_label", "created_at"]
+
+    def get_product_label(self, return_record):
+        if return_record.product:
+            return return_record.product.name
+        if return_record.easy_sale and return_record.easy_sale.product:
+            return return_record.easy_sale.product.name
+        return return_record.product_name or (return_record.easy_sale.product_name if return_record.easy_sale else "")
+
+    def validate(self, attrs):
+        sale = attrs.get("easy_sale")
+        party = attrs.get("party")
+        if sale and party and sale.party_id != party.pk:
+            raise serializers.ValidationError({"easy_sale": "The selected sale belongs to a different party."})
+        if sale and attrs.get("product") and sale.product_id != attrs["product"].pk:
+            raise serializers.ValidationError({"product": "The returned product must match the selected sale."})
+        location = attrs.get("stock_location")
+        showroom = attrs.get("showroom")
+        if location == "showroom" and not showroom:
+            raise serializers.ValidationError({"showroom": "Choose a showroom for the physical return."})
+        if location == "factory" and showroom:
+            raise serializers.ValidationError({"showroom": "Factory returns cannot specify a showroom."})
+        if location and not attrs.get("product") and not (sale and sale.product):
+            raise serializers.ValidationError({"product": "Select the physical product before restoring stock."})
+        if sale:
+            attrs.setdefault("product", sale.product)
+            attrs.setdefault("product_name", sale.product_name)
+            if not attrs.get("original_bill_number"):
+                attrs["original_bill_number"] = sale.bill_number
+            attrs["stock_location"] = sale.stock_location
+            attrs["showroom"] = sale.showroom
+        return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        request = self.context["request"]
+        key = request.headers.get("Idempotency-Key")
+        if key:
+            if len(key) > 64:
+                raise serializers.ValidationError({"detail": "Idempotency-Key must be 64 characters or fewer."})
+            existing = EasyWholesaleReturn.objects.filter(idempotency_key=key).first()
+            if existing:
+                same_payload = existing.party_id == validated_data["party"].pk and all(
+                    getattr(existing, field) == validated_data.get(field, getattr(existing, field))
+                    for field in ["return_date", "original_bill_number", "quantity", "amount", "product_name", "notes", "stock_location"]
+                )
+                same_payload = same_payload and existing.easy_sale_id == getattr(validated_data.get("easy_sale"), "pk", None)
+                same_payload = same_payload and existing.product_id == getattr(validated_data.get("product"), "pk", None)
+                same_payload = same_payload and existing.showroom_id == getattr(validated_data.get("showroom"), "pk", None)
+                if not same_payload:
+                    raise serializers.ValidationError({"detail": "Idempotency-Key was already used for a different return."})
+                return existing
+        sale = validated_data.get("easy_sale")
+        if sale:
+            sale = EasyWholesaleSale.objects.select_for_update().get(pk=sale.pk)
+            prior_returns = sale.returns.aggregate(quantity=Sum("quantity"), amount=Sum("amount"))
+            already_returned = prior_returns["quantity"] or 0
+            if validated_data["quantity"] > sale.quantity - already_returned:
+                raise serializers.ValidationError({"quantity": "Return quantity exceeds the eligible sale quantity."})
+            if validated_data["amount"] > sale.total_amount - (prior_returns["amount"] or Decimal("0")):
+                raise serializers.ValidationError({"amount": "Return amount exceeds the remaining sale value."})
+        validated_data["created_by"] = request.user
+        validated_data["idempotency_key"] = key or None
+        return_record = super().create(validated_data)
+        location = return_record.stock_location
+        showroom = return_record.showroom
+        product_value = return_record.product or (sale.product if sale else None)
+        if product_value and location:
+            try:
+                record_easy_stock_movement(
+                    movement_type="return", product=product_value, stock_location=location,
+                    showroom=showroom, quantity=return_record.quantity,
+                    movement_date=return_record.return_date, user=request.user,
+                    return_record=return_record, notes=return_record.notes,
+                )
+            except ValueError as error:
+                raise serializers.ValidationError({"quantity": str(error)}) from error
+        return return_record
+
+    def update(self, instance, validated_data):
+        raise serializers.ValidationError("Saved easy returns are immutable.")
 
 
 class StockAdjustmentSerializer(serializers.ModelSerializer):

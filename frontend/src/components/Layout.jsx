@@ -38,6 +38,7 @@ export default function Layout({ children }) {
               <NavLink onClick={() => setMenuOpen(false)} to="/stock-adjustments" className={linkClass}>Product Stock Adjustment</NavLink>
               <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/parties" className={linkClass}>Wholesale Party Management</NavLink>
               <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/sales" className={linkClass}>Wholesale Sales / New Invoice</NavLink>
+              <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/easy" className={linkClass}>Easy Wholesale Sales Management</NavLink>
               <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/returns" className={linkClass}>Wholesale Returns</NavLink>
               <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/summary" className={linkClass}>All Parties Summary</NavLink>
               <NavLink onClick={() => setMenuOpen(false)} to="/wholesale/reports" className={linkClass}>Wholesale Reports</NavLink>

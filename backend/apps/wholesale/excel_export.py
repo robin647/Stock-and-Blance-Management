@@ -127,18 +127,18 @@ def party_statement_excel(party, query_params):
     sheet.append(["Closing Balance", statement["closing_balance"]])
     sheet.append(["Date range", f"{query_params.get('start_date', 'All')} to {query_params.get('end_date', 'All')}"])
     sheet.append([])
-    _header(sheet, ["Transaction Date", "Type", "Cash Memo / Bill", "Product Quantity", "Gross Sale", "Bank Payment",
-                    "bKash Payment", "Cash Payment", "Total Payment", "Return Quantity", "Return Amount",
-                    "Net Transaction", "Running Balance", "Payment Reference", "Notes"])
+    _header(sheet, ["Transaction Date", "Type", "Record Source", "Cash Memo / Bill", "Product", "Product Quantity",
+                    "Gross Sale", "Bank Payment", "bKash Payment", "Cash Payment", "Total Payment",
+                    "Return Quantity", "Return Amount", "Net Transaction", "Running Balance", "Payment Reference", "Notes"])
     for row in statement["results"]:
         sheet.append([
-            row["date"], row["type"], row["invoice_number"], row["quantity"], row["gross_sale"],
+            row["date"], row["type"], row.get("source", "legacy"), row["invoice_number"], row.get("product_name", ""), row["quantity"], row["gross_sale"],
             row["bank_payment"], row["bkash_payment"], row["cash_payment"], row["total_payment"],
             row["return_quantity"], row["return_amount"], row["net_amount"], row["running_balance"],
             row.get("reference", ""), row["notes"],
         ])
     _apply_formats(sheet, 6)
-    sheet.auto_filter.ref = f"A6:O{sheet.max_row}"
+    sheet.auto_filter.ref = f"A6:Q{sheet.max_row}"
     criteria = dict(query_params)
     if query_params.get("product_id"):
         criteria["product"] = query_params["product_id"]

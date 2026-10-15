@@ -3,6 +3,12 @@ import { wholesaleInvoiceApi, wholesaleReturnApi } from "../../api/endpoints";
 
 const listOf = (response) => response.data.results || response.data;
 const today = new Date().toISOString().slice(0, 10);
+const apiError = (error) => {
+  const data = error.response?.data;
+  if (!data) return "Request failed. Check your connection and try again.";
+  if (data.errors) return Object.values(data.errors).flat().join(" ");
+  return data.detail || Object.values(data).flat().join(" ") || "Could not save the return.";
+};
 
 export default function WholesaleReturns() {
   const [invoices, setInvoices] = useState([]);
@@ -42,9 +48,9 @@ export default function WholesaleReturns() {
       requestKeyRef.current = { payload: "", key: "" };
       setForm((current) => ({ ...current, quantity: 1, amount: "", notes: "" }));
       setMessage("Return recorded and inventory restored at the original stock location.");
-      await load();
+      try { await load(); } catch { setMessage("Return saved, but history could not refresh. Reload the page to view it."); }
     } catch (error) {
-      setMessage(error.response?.data?.detail || JSON.stringify(error.response?.data || "Could not save return."));
+      setMessage(apiError(error));
     }
   }
 

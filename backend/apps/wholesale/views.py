@@ -14,8 +14,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 from apps.inventory.models import StockAdjustment
 from core.pagination import StandardPageNumberPagination
 
-from .models import WholesaleInvoice, WholesaleParty, WholesalePayment, WholesaleReturn
+from .models import (
+    EasyWholesalePayment, EasyWholesaleReturn, EasyWholesaleSale,
+    WholesaleInvoice, WholesaleParty, WholesalePayment, WholesaleReturn,
+)
 from .serializers import (
+    EasyWholesalePaymentSerializer, EasyWholesaleReturnSerializer, EasyWholesaleSaleSerializer,
     InvoiceSerializer, PartySerializer, PaymentCreateSerializer, PaymentSerializer,
     ReturnSerializer, StockAdjustmentSerializer,
 )
@@ -43,6 +47,18 @@ class PartyViewSet(AdminOnlyViewSet):
     def destroy(self, request, *args, **kwargs):
         raise MethodNotAllowed(request.method, detail="Deactivate parties instead of deleting account records.")
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        parties = page if page is not None else queryset
+        party_ids = [party.pk for party in parties]
+        summary_rows, _ = all_party_summary({"party_ids": party_ids})
+        totals_by_party = {row["party_id"]: row for row in summary_rows}
+        serializer = self.get_serializer(parties, many=True, context={
+            **self.get_serializer_context(), "party_totals": totals_by_party,
+        })
+        return self.get_paginated_response(serializer.data) if page is not None else Response(serializer.data)
+
     @action(detail=True, methods=["get"])
     def history(self, request, pk=None):
         party = self.get_object()
@@ -62,6 +78,10 @@ class PartyViewSet(AdminOnlyViewSet):
             limit=page_size,
             offset=(page_number - 1) * page_size,
         )
+        statement["results"] = [
+            {key: value for key, value in event.items() if key != "created_at"}
+            for event in statement["results"]
+        ]
         next_url = previous_url = None
         if page_number * page_size < statement["count"]:
             params = request.query_params.copy()
@@ -136,7 +156,12 @@ class PaymentViewSet(AdminOnlyViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         invoice_id = self.request.query_params.get("invoice")
-        return queryset.filter(invoice_id=invoice_id) if invoice_id else queryset
+        party_id = self.request.query_params.get("party")
+        if invoice_id:
+            queryset = queryset.filter(invoice_id=invoice_id)
+        if party_id:
+            queryset = queryset.filter(invoice__party_id=party_id)
+        return queryset
 
     def update(self, request, *args, **kwargs):
         raise MethodNotAllowed(request.method, detail="Payments are immutable; record a new payment entry.")
@@ -157,12 +182,15 @@ class ReturnViewSet(AdminOnlyViewSet):
         start_date = self.request.query_params.get("start_date")
         end_date = self.request.query_params.get("end_date")
         invoice_number = self.request.query_params.get("invoice_number")
+        party_id = self.request.query_params.get("party")
         if start_date:
             queryset = queryset.filter(return_date__gte=start_date)
         if end_date:
             queryset = queryset.filter(return_date__lte=end_date)
         if invoice_number:
             queryset = queryset.filter(invoice_item__invoice__invoice_number__icontains=invoice_number)
+        if party_id:
+            queryset = queryset.filter(invoice_item__invoice__party_id=party_id)
         return queryset
 
     def update(self, request, *args, **kwargs):
@@ -187,6 +215,41 @@ class StockAdjustmentViewSet(AdminOnlyViewSet):
 
     def destroy(self, request, *args, **kwargs):
         raise MethodNotAllowed(request.method, detail="Stock adjustment history is immutable.")
+
+
+class EasyTransactionViewSet(AdminOnlyViewSet):
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        party_id = self.request.query_params.get("party")
+        start_date = self.request.query_params.get("start_date")
+        end_date = self.request.query_params.get("end_date")
+        if party_id:
+            queryset = queryset.filter(party_id=party_id)
+        if start_date:
+            queryset = queryset.filter(**{f"{self.date_field}__gte": start_date})
+        if end_date:
+            queryset = queryset.filter(**{f"{self.date_field}__lte": end_date})
+        return queryset
+
+
+class EasyWholesaleSaleViewSet(EasyTransactionViewSet):
+    queryset = EasyWholesaleSale.objects.select_related("party", "product", "showroom", "created_by")
+    serializer_class = EasyWholesaleSaleSerializer
+    date_field = "sale_date"
+
+
+class EasyWholesalePaymentViewSet(EasyTransactionViewSet):
+    queryset = EasyWholesalePayment.objects.select_related("party", "created_by")
+    serializer_class = EasyWholesalePaymentSerializer
+    date_field = "payment_date"
+
+
+class EasyWholesaleReturnViewSet(EasyTransactionViewSet):
+    queryset = EasyWholesaleReturn.objects.select_related("party", "product", "easy_sale", "showroom", "created_by")
+    serializer_class = EasyWholesaleReturnSerializer
+    date_field = "return_date"
 
 
 class PartySummaryView(APIView):
