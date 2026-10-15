@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { SiteFooter } from "../components/SiteFooter.jsx";
 
 const MODES = {
   admin: {
@@ -61,7 +62,7 @@ export default function Login() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-brand-50 via-white to-slate-100 px-4 py-10 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-brand-50 via-white to-slate-100 px-4 py-10 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
       <div className="pointer-events-none absolute -left-24 -top-24 h-80 w-80 rounded-full bg-brand-200/40 blur-3xl dark:bg-brand-700/20" />
       <div className="pointer-events-none absolute -bottom-32 -right-24 h-96 w-96 rounded-full bg-indigo-200/40 blur-3xl dark:bg-indigo-700/20" />
       <div className="relative w-full max-w-md">
@@ -147,6 +148,9 @@ export default function Login() {
         <p className="text-center text-xs text-gray-400 mt-6">
           Showroom accounts are created by the Admin. Contact your Admin if you don&apos;t have login details.
         </p>
+      </div>
+      <div className="relative mt-8 w-full">
+        <SiteFooter />
       </div>
     </div>
   );

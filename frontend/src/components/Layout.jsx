@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
+import { SiteFooter } from "./SiteFooter.jsx";
 
 const linkClass = ({ isActive }) =>
   `block px-3.5 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
@@ -75,7 +76,7 @@ export default function Layout({ children }) {
           </button>
         </div>
       </aside>
-      <main className="flex-1 min-w-0 overflow-y-auto">
+      <main className="flex-1 min-w-0 overflow-y-auto flex flex-col">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200/80 bg-white/90 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8 dark:bg-slate-900/90">
           <div className="flex items-center gap-3">
             <button onClick={() => setMenuOpen(true)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 md:hidden dark:text-slate-100">Menu</button>
@@ -86,7 +87,8 @@ export default function Layout({ children }) {
             <button onClick={toggleTheme} aria-label="Toggle color theme" className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800">{theme === "dark" ? "Light theme" : "Dark theme"}</button>
           </div>
         </header>
-        <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6 lg:p-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1600px] flex-1 p-4 sm:p-6 lg:p-8">{children}</div>
+        <SiteFooter />
       </main>
     </div>
   );

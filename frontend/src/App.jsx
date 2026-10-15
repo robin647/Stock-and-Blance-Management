@@ -18,6 +18,7 @@ import WholesaleReports from "./pages/admin/WholesaleReports.jsx";
 import BalanceEntry from "./pages/showroom/BalanceEntry.jsx";
 import ShowroomDashboard from "./pages/showroom/ShowroomDashboard.jsx";
 import StockEntry from "./pages/showroom/StockEntry.jsx";
+import { WhatsAppButton } from "./components/SiteFooter.jsx";
 
 function Home() {
   const { isAdmin } = useAuth();
@@ -26,6 +27,7 @@ function Home() {
 
 export default function App() {
   return (
+    <>
     <Routes>
       <Route path="/login" element={<Login />} />
 
@@ -89,5 +91,7 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    <WhatsAppButton />
+    </>
   );
 }
