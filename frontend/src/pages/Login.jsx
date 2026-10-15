@@ -61,19 +61,21 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 via-white to-gray-50 px-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-6">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-500 text-white font-semibold text-lg mb-3">
+    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-brand-50 via-white to-slate-100 px-4 py-10 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      <div className="pointer-events-none absolute -left-24 -top-24 h-80 w-80 rounded-full bg-brand-200/40 blur-3xl dark:bg-brand-700/20" />
+      <div className="pointer-events-none absolute -bottom-32 -right-24 h-96 w-96 rounded-full bg-indigo-200/40 blur-3xl dark:bg-indigo-700/20" />
+      <div className="relative w-full max-w-md">
+        <div className="text-center mb-7">
+          <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white font-bold text-lg mb-4 shadow-lg shadow-brand-500/25">
             MS
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">Mahir Sherwani</h1>
-          <p className="text-sm text-gray-500 mt-1">Showroom Stock &amp; Sales Management</p>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Mahir Sherwani</h1>
+          <p className="text-sm text-gray-500 mt-1">Showroom stock &amp; sales management</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        <div className="bg-white rounded-2xl shadow-xl shadow-slate-900/5 border border-gray-100 p-7 sm:p-8 dark:border-slate-700">
           {/* Login mode switch */}
-          <div className="mb-6 grid grid-cols-2 gap-1 bg-gray-100 rounded-xl p-1">
+          <div className="mb-7 grid grid-cols-2 gap-1.5 bg-gray-100 rounded-xl p-1.5 dark:bg-slate-800">
             {Object.entries(MODES).map(([key, m]) => (
               <button
                 key={key}
@@ -82,7 +84,7 @@ export default function Login() {
                 aria-pressed={mode === key}
                 className={`py-2 rounded-lg text-sm font-medium transition-colors ${
                   mode === key
-                    ? "bg-white text-brand-700 shadow-sm"
+                    ? "bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white"
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
@@ -108,7 +110,7 @@ export default function Login() {
                 Username
               </label>
               <input
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                className="w-full border border-gray-200 bg-gray-50/70 rounded-xl px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent dark:bg-slate-800"
                 placeholder={copy.userPlaceholder}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -123,7 +125,7 @@ export default function Login() {
               </label>
               <input
                 type="password"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                className="w-full border border-gray-200 bg-gray-50/70 rounded-xl px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent dark:bg-slate-800"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -135,7 +137,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium py-2.5 rounded-lg transition-colors disabled:opacity-60"
+              className="w-full bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold py-3 rounded-xl transition-colors disabled:opacity-60 shadow-md shadow-brand-500/20"
             >
               {loading ? "Signing in..." : `Sign in as ${copy.label}`}
             </button>

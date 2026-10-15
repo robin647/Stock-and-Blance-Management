@@ -4,8 +4,8 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 
 const linkClass = ({ isActive }) =>
-  `block px-4 py-2 rounded-lg text-sm font-medium ${
-    isActive ? "bg-brand-500 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-800"
+  `block px-3.5 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
+    isActive ? "bg-brand-500 text-white shadow-md shadow-brand-500/20" : "text-gray-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-200 dark:hover:bg-slate-800"
   }`;
 
 export default function Layout({ children }) {
@@ -22,10 +22,16 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen flex bg-gray-50 dark:bg-slate-950">
       {menuOpen && <button aria-label="Close menu" onClick={() => setMenuOpen(false)} className="fixed inset-0 z-30 bg-slate-950/45 md:hidden" />}
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 flex flex-col transition-transform duration-200 md:static md:translate-x-0 dark:bg-slate-900 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="p-4 border-b border-gray-200">
-          <div className="font-semibold text-brand-700 text-lg">Mahir Sherwani</div>
-          <div className="text-xs text-gray-500 mt-1">
+      <aside className={`fixed inset-y-0 left-0 z-40 w-[272px] bg-white border-r border-gray-200 flex flex-col transition-transform duration-200 md:static md:translate-x-0 dark:bg-slate-900 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="px-5 py-5 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold tracking-wide text-white shadow-md shadow-brand-500/20">MS</div>
+            <div>
+              <div className="font-bold tracking-tight text-gray-900">Mahir Sherwani</div>
+              <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[.12em] text-brand-600">Stock &amp; Sales</div>
+            </div>
+          </div>
+          <div className="text-xs text-gray-500 mt-3 pl-1">
             {isAdmin ? "Admin Panel" : user?.showroomName}
           </div>
         </div>
@@ -53,26 +59,34 @@ export default function Layout({ children }) {
             </>
           )}
         </nav>
-        <div className="p-3 border-t border-gray-200">
-          <div className="text-sm text-gray-700 mb-2">{user?.fullName}</div>
-          <button onClick={toggleTheme} className="w-full text-sm text-left px-4 py-2 rounded-lg text-gray-600 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-800">
+        <div className="p-3 border-t border-gray-100 dark:border-slate-700">
+          <div className="mb-3 flex items-center gap-3 rounded-xl bg-gray-50 p-3 dark:bg-slate-800">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-sm font-bold text-brand-700">{user?.fullName?.charAt(0)?.toUpperCase() || "U"}</div>
+            <div className="min-w-0"><div className="truncate text-sm font-semibold text-gray-800 dark:text-slate-100">{user?.fullName}</div><div className="text-xs text-gray-500">{isAdmin ? "Administrator" : "Showroom user"}</div></div>
+          </div>
+          <button onClick={toggleTheme} className="w-full text-left px-3.5 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-800">
             {theme === "dark" ? "Light theme" : "Dark theme"}
           </button>
           <button
             onClick={handleLogout}
-            className="w-full text-sm text-left px-4 py-2 rounded-lg text-red-600 hover:bg-red-50"
+            className="w-full text-left px-3.5 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
           >
             Log out
           </button>
         </div>
       </aside>
       <main className="flex-1 min-w-0 overflow-y-auto">
-        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur md:hidden dark:bg-slate-900/95">
-          <button onClick={() => setMenuOpen(true)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 dark:text-slate-100">Menu</button>
-          <span className="font-semibold text-brand-700">Mahir Sherwani</span>
-          <button onClick={toggleTheme} className="rounded-lg px-2 py-1.5 text-sm text-gray-700 dark:text-slate-100">{theme === "dark" ? "Light" : "Dark"}</button>
+        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200/80 bg-white/90 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8 dark:bg-slate-900/90">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setMenuOpen(true)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 md:hidden dark:text-slate-100">Menu</button>
+            <div className="hidden text-sm font-semibold text-gray-800 md:block dark:text-slate-100">{isAdmin ? "Administration" : user?.showroomName || "Showroom"}</div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-sm text-gray-500 sm:block">{user?.fullName}</span>
+            <button onClick={toggleTheme} aria-label="Toggle color theme" className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:text-slate-100 dark:hover:bg-slate-800">{theme === "dark" ? "Light theme" : "Dark theme"}</button>
+          </div>
         </header>
-        <div className="p-4 sm:p-6">{children}</div>
+        <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6 lg:p-8">{children}</div>
       </main>
     </div>
   );

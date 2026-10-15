@@ -2,34 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gray-50 text-gray-900 transition-colors duration-200;
+@layer base {
+  :root { color-scheme: light; }
+  html { background: #f5f7fb; }
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased transition-colors duration-200;
+    background-image: radial-gradient(ellipse at top left, rgba(59, 95, 224, .055), transparent 36rem);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  button, input, select, textarea { font: inherit; }
+  button { @apply transition-all duration-150; }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white;
+  }
+  input, select, textarea {
+    @apply transition-colors duration-150;
+  }
+  ::selection { background: #d9e6ff; color: #26399e; }
 }
 
+@layer components {
+  .bg-white.rounded-2xl, .bg-white.rounded-xl {
+    @apply shadow-sm;
+    border-color: #e8edf5;
+  }
+  button.bg-brand-500, button.bg-brand-600 {
+    @apply shadow-sm hover:-translate-y-px hover:shadow-md active:translate-y-0;
+  }
+  table thead th { @apply font-semibold tracking-wide; }
+  table tbody tr { @apply transition-colors; }
+  table tbody tr:hover { background-color: #f7f9fd; }
+}
+
+.dark :root { color-scheme: dark; }
 .dark body {
   @apply bg-slate-950 text-slate-100;
+  background-image: radial-gradient(ellipse at top left, rgba(59, 95, 224, .12), transparent 38rem);
 }
-
-.dark .bg-white {
-  @apply bg-slate-900 !important;
-}
-
-.dark .bg-gray-50, .dark .hover\:bg-gray-50:hover, .dark .hover\:bg-gray-100:hover {
-  @apply bg-slate-800 !important;
-}
-
-.dark .border-gray-100, .dark .border-gray-200, .dark .border-gray-300, .dark .border-gray-50 {
-  @apply border-slate-700 !important;
-}
-
-.dark .text-gray-900, .dark .text-gray-700, .dark .text-gray-600 {
-  @apply text-slate-100 !important;
-}
-
-.dark .text-gray-500, .dark .text-gray-400 {
-  @apply text-slate-300 !important;
-}
-
-.dark input, .dark select, .dark textarea {
-  @apply bg-slate-800 text-slate-100 border-slate-600;
+.dark .bg-white { @apply bg-slate-900 !important; }
+.dark .bg-gray-50, .dark .hover\:bg-gray-50:hover, .dark .hover\:bg-gray-100:hover { @apply bg-slate-800 !important; }
+.dark .border-gray-100, .dark .border-gray-200, .dark .border-gray-300, .dark .border-gray-50 { @apply border-slate-700 !important; }
+.dark .text-gray-900, .dark .text-gray-700, .dark .text-gray-600 { @apply text-slate-100 !important; }
+.dark .text-gray-500, .dark .text-gray-400 { @apply text-slate-300 !important; }
+.dark input, .dark select, .dark textarea { @apply bg-slate-800 text-slate-100 border-slate-600; }
+.dark table tbody tr:hover { background-color: #1e293b; }
+.dark button:focus-visible, .dark a:focus-visible, .dark input:focus-visible, .dark select:focus-visible, .dark textarea:focus-visible {
+  @apply ring-offset-slate-900;
 }
