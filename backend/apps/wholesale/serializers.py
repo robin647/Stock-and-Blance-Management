@@ -4,7 +4,7 @@ from django.db import transaction
 from django.db.models import Sum
 from rest_framework import serializers
 
-from apps.inventory.models import StockAdjustment
+from apps.inventory.models import FactoryStock, ShowroomStock, StockAdjustment
 from apps.inventory.services import adjust_stock
 from apps.products.models import Product
 
@@ -285,9 +285,13 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
 
 class PaymentCreateSerializer(serializers.ModelSerializer):
+    total_amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
     class Meta:
         model = WholesalePayment
-        fields = ["invoice", "payment_date", "bank_amount", "bkash_amount", "cash_amount", "reference", "notes"]
+        fields = ["id", "invoice", "payment_date", "bank_amount", "bkash_amount", "cash_amount",
+                  "total_amount", "reference", "notes", "created_at"]
+        read_only_fields = ["id", "total_amount", "created_at"]
 
     def validate(self, attrs):
         if not (attrs["bank_amount"] + attrs["bkash_amount"] + attrs["cash_amount"]):

@@ -10,7 +10,7 @@ from apps.products.models import Product
 
 from .models import (
     EasyWholesalePayment, EasyWholesaleReturn, EasyWholesaleSale, EasyWholesaleStockMovement,
-    WholesaleInvoice, WholesaleParty, WholesalePayment, WholesaleReturn,
+    WholesaleInvoice, WholesaleParty, WholesalePayment, WholesaleReturn, WholesaleSaleItem,
 )
 
 ZERO = Decimal("0.00")
@@ -339,6 +339,12 @@ def all_party_summary(query_params):
     if end_date:
         invoices = invoices.filter(sale_date__lte=end_date)
 
+    sale_item_totals = WholesaleSaleItem.objects.filter(invoice_id=OuterRef("pk")).order_by().values(
+        "invoice_id"
+    ).annotate(
+        gross=Sum(F("quantity") * F("unit_price"), output_field=money_field),
+        quantity=Sum("quantity"),
+    )
     return_totals = WholesaleReturn.objects.filter(
         invoice_item__invoice_id=OuterRef("pk")
     ).order_by().values("invoice_item__invoice_id").annotate(
@@ -351,10 +357,8 @@ def all_party_summary(query_params):
     )
     zero_money = Value(ZERO, output_field=money_field)
     invoices = invoices.annotate(
-        gross=Coalesce(
-            Sum(F("items__quantity") * F("items__unit_price"), output_field=money_field), zero_money
-        ),
-        quantity=Coalesce(Sum("items__quantity"), Value(0, output_field=IntegerField())),
+        gross=Coalesce(Subquery(sale_item_totals.values("gross")[:1], output_field=money_field), zero_money),
+        quantity=Coalesce(Subquery(sale_item_totals.values("quantity")[:1], output_field=IntegerField()), Value(0, output_field=IntegerField())),
         returned=Coalesce(Subquery(return_totals.values("amount")[:1], output_field=money_field), zero_money),
         return_quantity=Coalesce(Subquery(return_totals.values("quantity")[:1], output_field=IntegerField()), Value(0, output_field=IntegerField())),
         bank=Coalesce(Subquery(payment_totals.values("bank")[:1], output_field=money_field), zero_money),

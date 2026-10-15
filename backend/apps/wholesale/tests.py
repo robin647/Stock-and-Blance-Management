@@ -1,7 +1,9 @@
 from decimal import Decimal
+from datetime import date
 from io import BytesIO
 
 from django.test import TestCase
+from django.urls import reverse
 from openpyxl import load_workbook
 from rest_framework.test import APIClient
 
@@ -69,9 +71,9 @@ class WholesaleApiTests(TestCase):
         self.assertEqual(invoice_response.status_code, 201, invoice_response.data)
         invoice_id = invoice_response.data["id"]
         invoice_item_id = invoice_response.data["items"][0]["id"]
-        self.assertEqual(invoice_response.data["gross_amount"], "300.00")
+        self.assertEqual(Decimal(invoice_response.data["gross_amount"]), Decimal("300.00"))
         self.assertEqual(invoice_response.data["total_quantity"], 3)
-        self.assertEqual(invoice_response.data["due_amount"], "250.00")
+        self.assertEqual(Decimal(invoice_response.data["due_amount"]), Decimal("250.00"))
         self.factory_stock.refresh_from_db()
         self.assertEqual(self.factory_stock.quantity, 17)
 
@@ -89,10 +91,10 @@ class WholesaleApiTests(TestCase):
         self.assertEqual(self.factory_stock.quantity, 18)
 
         detail = self.client.get(f"/api/wholesale/invoices/{invoice_id}/")
-        self.assertEqual(detail.data["total_payments"], "150.00")
+        self.assertEqual(Decimal(detail.data["total_payments"]), Decimal("150.00"))
         self.assertEqual(detail.data["return_quantity"], 1)
-        self.assertEqual(detail.data["return_amount"], "100.00")
-        self.assertEqual(detail.data["due_amount"], "50.00")
+        self.assertEqual(Decimal(detail.data["return_amount"]), Decimal("100.00"))
+        self.assertEqual(Decimal(detail.data["due_amount"]), Decimal("50.00"))
 
     def test_duplicate_invoice_and_excess_return_are_rejected(self):
         payload = {
@@ -144,8 +146,8 @@ class WholesaleApiTests(TestCase):
         }, format="json")
         self.assertEqual(returned.status_code, 201, returned.data)
         detail = self.client.get(f"/api/wholesale/invoices/{invoice.data['id']}/")
-        self.assertEqual(detail.data["due_amount"], "0.00")
-        self.assertEqual(detail.data["credit_amount"], "100.00")
+        self.assertEqual(Decimal(detail.data["due_amount"]), Decimal("0.00"))
+        self.assertEqual(Decimal(detail.data["credit_amount"]), Decimal("100.00"))
 
     def test_non_admin_cannot_manage_wholesale_or_stock_adjustments(self):
         self.client.force_authenticate(self.showroom_user)
@@ -170,6 +172,43 @@ class WholesaleApiTests(TestCase):
         self.assertEqual(response.data["contact_person"], "A. Buyer")
         self.assertFalse(response.data["is_active"])
 
+    def test_party_list_endpoint_aggregates_legacy_and_easy_transactions(self):
+        invoice = self.client.post("/api/wholesale/invoices/", {
+            "party": self.party_id, "invoice_number": "LIST-LEGACY", "sale_date": "2026-10-01",
+            "items": [{"product": self.product.id, "quantity": 2, "unit_price": "100.00"}],
+        }, format="json")
+        self.assertEqual(invoice.status_code, 201, invoice.data)
+        payment = self.client.post("/api/wholesale/payments/", {
+            "invoice": invoice.data["id"], "payment_date": "2026-10-02", "bank_amount": "50.00",
+            "bkash_amount": "0.00", "cash_amount": "0.00",
+        }, format="json")
+        self.assertEqual(payment.status_code, 201, payment.data)
+        returned = self.client.post("/api/wholesale/returns/", {
+            "invoice_item": invoice.data["items"][0]["id"], "quantity": 1,
+            "amount": "100.00", "return_date": "2026-10-03",
+        }, format="json")
+        self.assertEqual(returned.status_code, 201, returned.data)
+        easy_sale = self.client.post("/api/wholesale/easy/sales/", {
+            "party": self.party_id, "sale_date": "2026-10-04", "bill_number": "LIST-EASY",
+            "quantity": 1, "total_amount": "75.00",
+        }, format="json")
+        self.assertEqual(easy_sale.status_code, 201, easy_sale.data)
+
+        response = self.client.get("/api/wholesale/parties/", {
+            "search": "test", "is_active": "true", "page": 1, "page_size": 10,
+        })
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["count"], 1)
+        party_row = response.data["results"][0]
+        self.assertEqual(Decimal(party_row["total_sales"]), Decimal("175.00"))
+        self.assertEqual(Decimal(party_row["total_payments"]), Decimal("50.00"))
+        self.assertEqual(Decimal(party_row["total_returns"]), Decimal("100.00"))
+        self.assertEqual(Decimal(party_row["total_due"]), Decimal("125.00"))
+
+    def test_party_routes_are_registered_with_trailing_slashes(self):
+        self.assertEqual(reverse("wholesale-party-list"), "/api/wholesale/parties/")
+        self.assertEqual(reverse("wholesale-party-detail", args=[1]), "/api/wholesale/parties/1/")
+
     def test_statement_uses_actual_payment_date_and_prior_opening_balance(self):
         invoice = self.client.post("/api/wholesale/invoices/", {
             "party": self.party_id, "invoice_number": "WS-DATE-01", "sale_date": "2026-10-01",
@@ -186,16 +225,16 @@ class WholesaleApiTests(TestCase):
             "start_date": "2026-10-10", "end_date": "2026-10-15",
         })
         self.assertEqual(statement.status_code, 200, statement.data)
-        self.assertEqual(statement.data["opening_balance"], "200.00")
-        self.assertEqual(statement.data["summary"]["gross_sales"], "0.00")
-        self.assertEqual(statement.data["summary"]["total_payments"], "100.00")
-        self.assertEqual(statement.data["summary"]["bank_payments"], "50.00")
-        self.assertEqual(statement.data["closing_balance"], "100.00")
+        self.assertEqual(statement.data["opening_balance"], Decimal("200.00"))
+        self.assertEqual(statement.data["summary"]["gross_sales"], Decimal("0.00"))
+        self.assertEqual(statement.data["summary"]["total_payments"], Decimal("100.00"))
+        self.assertEqual(statement.data["summary"]["bank_payments"], Decimal("50.00"))
+        self.assertEqual(statement.data["closing_balance"], Decimal("100.00"))
         row = statement.data["results"][0]
         self.assertEqual(row["type"], "payment")
-        self.assertEqual(row["date"], "2026-10-12")
+        self.assertEqual(row["date"], date(2026, 10, 12))
         self.assertEqual(row["reference"], "BANK-REF-7")
-        self.assertEqual(row["running_balance"], "100.00")
+        self.assertEqual(row["running_balance"], Decimal("100.00"))
 
         statement_export = self.client.get(
             f"/api/wholesale/parties/{self.party_id}/statement/export/",
@@ -251,8 +290,8 @@ class WholesaleApiTests(TestCase):
         self.factory_stock.refresh_from_db()
         self.assertEqual(self.factory_stock.quantity, 19)
         detail = self.client.get(f"/api/wholesale/invoices/{invoice.data['id']}/")
-        self.assertEqual(detail.data["total_payments"], "25.00")
-        self.assertEqual(detail.data["return_amount"], "100.00")
+        self.assertEqual(Decimal(detail.data["total_payments"]), Decimal("25.00"))
+        self.assertEqual(Decimal(detail.data["return_amount"]), Decimal("100.00"))
 
     def test_easy_sale_without_product_saves_without_stock_movement_and_appears_in_statement(self):
         response = self.client.post("/api/wholesale/easy/sales/", {
@@ -273,9 +312,9 @@ class WholesaleApiTests(TestCase):
         easy_rows = [row for row in statement.data["results"] if row.get("source") == "easy"]
         self.assertEqual(len(easy_rows), 1)
         self.assertEqual(easy_rows[0]["type"], "sale")
-        self.assertEqual(easy_rows[0]["date"], "2026-10-10")
+        self.assertEqual(easy_rows[0]["date"], date(2026, 10, 10))
         self.assertEqual(easy_rows[0]["product_name"], "Custom Sherwani")
-        self.assertEqual(statement.data["summary"]["gross_sales"], "1250.50")
+        self.assertEqual(statement.data["summary"]["gross_sales"], Decimal("1250.50"))
 
     def test_easy_party_payment_is_a_separate_dated_statement_event(self):
         sale = self.client.post("/api/wholesale/easy/sales/", {
@@ -294,13 +333,13 @@ class WholesaleApiTests(TestCase):
             "start_date": "2026-10-10", "end_date": "2026-10-15", "transaction_type": "payment",
         })
         self.assertEqual(filtered.status_code, 200, filtered.data)
-        self.assertEqual(filtered.data["opening_balance"], "500.00")
-        self.assertEqual(filtered.data["summary"]["gross_sales"], "0.00")
-        self.assertEqual(filtered.data["summary"]["bank_payments"], "20.00")
-        self.assertEqual(filtered.data["summary"]["bkash_payments"], "30.00")
-        self.assertEqual(filtered.data["summary"]["cash_payments"], "50.00")
-        self.assertEqual(filtered.data["closing_balance"], "400.00")
-        self.assertEqual(filtered.data["results"][0]["date"], "2026-10-12")
+        self.assertEqual(filtered.data["opening_balance"], Decimal("500.00"))
+        self.assertEqual(filtered.data["summary"]["gross_sales"], Decimal("0.00"))
+        self.assertEqual(filtered.data["summary"]["bank_payments"], Decimal("20.00"))
+        self.assertEqual(filtered.data["summary"]["bkash_payments"], Decimal("30.00"))
+        self.assertEqual(filtered.data["summary"]["cash_payments"], Decimal("50.00"))
+        self.assertEqual(filtered.data["closing_balance"], Decimal("400.00"))
+        self.assertEqual(filtered.data["results"][0]["date"], date(2026, 10, 12))
         self.assertEqual(filtered.data["results"][0]["reference"], "EASY-REF")
 
     def test_easy_standalone_return_is_financial_only_and_linked_return_restores_selected_stock(self):
@@ -318,6 +357,11 @@ class WholesaleApiTests(TestCase):
             "stock_location": "showroom", "showroom": self.showroom.id,
         }, format="json")
         self.assertEqual(sale.status_code, 201, sale.data)
+        payment = self.client.post("/api/wholesale/easy/payments/", {
+            "party": self.party_id, "payment_date": "2026-10-10", "bank_amount": "10.00",
+            "bkash_amount": "0.00", "cash_amount": "0.00",
+        }, format="json")
+        self.assertEqual(payment.status_code, 201, payment.data)
         returned = self.client.post("/api/wholesale/easy/returns/", {
             "party": self.party_id, "return_date": "2026-10-13", "easy_sale": sale.data["id"],
             "quantity": 1, "amount": "120.00",
@@ -370,7 +414,7 @@ class WholesaleApiTests(TestCase):
         summary = self.client.get("/api/wholesale/summary/", {"party": self.party_id})
         self.assertEqual(summary.status_code, 200, summary.data)
         party_row = summary.data["results"][0]
-        self.assertEqual(party_row["total_sales"], "350.00")
+        self.assertEqual(Decimal(party_row["total_sales"]), Decimal("350.00"))
         self.assertEqual(party_row["total_products"], 3)
 
     def test_easy_product_sale_deducts_only_when_explicit_inventory_location_is_selected(self):
@@ -413,4 +457,4 @@ class WholesaleApiTests(TestCase):
         rows = [row for row in statement.data["results"] if row["type"] == "sale"]
         self.assertEqual(len(rows), 2)
         self.assertEqual({row["source"] for row in rows}, {"legacy", "easy"})
-        self.assertEqual([row["running_balance"] for row in rows], ["100.00", "350.00"])
+        self.assertEqual([row["running_balance"] for row in rows], [Decimal("100.00"), Decimal("350.00")])

@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
+const API_URL = (configuredApiUrl || "http://localhost:8000/api").replace(/\/+$/, "");
 
 const api = axios.create({ baseURL: API_URL });
 
@@ -27,6 +28,14 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    if (import.meta.env.DEV) {
+      console.error("[API request failed]", {
+        method: originalRequest?.method?.toUpperCase(),
+        url: originalRequest?.baseURL ? `${originalRequest.baseURL}${originalRequest.url}` : originalRequest?.url,
+        status: error.response?.status,
+      });
+    }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       const refreshToken = localStorage.getItem("refresh_token");
